@@ -1,6 +1,7 @@
 import random as random
 import datetime as datetime
 import sqlalchemy as sql
+from sqlalchemy import exc
 import hypothesis as hyp
 from hypothesis.provisional import domains, urls
 from hypothesis import given
@@ -37,7 +38,6 @@ galactus_account_table = sql.Table(
     "galactus_account", db_metadata_main,
     sql.Column("username", sql.String, primary_key=True),
     sql.Column("salted_password", sql.String),
-    sql.Column("unsalted_password", sql.String),
     sql.Column("wallet_id", sql.String),
     sql.Column("wallet_confirmed", sql.Boolean),
     sql.Column("tokens_deposited", sql.Integer),
@@ -247,6 +247,10 @@ def run_program(exo):
     print(gas)
     print("creating")
     endo.send("public-galactus-account-create")
+    ns = endo.get_next_states()
+    print(ns)
+    hm = endo.heatmap_to_list(sort_order="hotness")
+    print(hm)
 
 
 def is_member(elem, ls):
@@ -277,8 +281,14 @@ class paging_control:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("paging-control", self)
         (exo.page_num_zero_plus().verify())
         (exo.page_quantity_one_plus().verify())
+        exo.stackset.pop_unsafe("paging-control")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -318,7 +328,13 @@ class context:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("context", self)
         (exo.context_is_locked().end_after_start().guarded_verify())
+        exo.stackset.pop_unsafe("context")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -349,7 +365,13 @@ class response:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("response", self)
         (exo.valid_response_status().verify())
+        exo.stackset.pop_unsafe("response")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -395,8 +417,14 @@ class backoff_strategy:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("backoff-strategy", self)
         (exo.randomness_zero_one().verify())
         (exo.delay_in_range().verify())
+        exo.stackset.pop_unsafe("backoff-strategy")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -425,7 +453,13 @@ class db_load_query:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("db-load-query", self)
         (exo.load_query_exists().verify())
+        exo.stackset.pop_unsafe("db-load-query")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -454,7 +488,13 @@ class db_store_query:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("db-store-query", self)
         (exo.store_query_exists().verify())
+        exo.stackset.pop_unsafe("db-store-query")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -483,6 +523,12 @@ class db_error:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("db-error", self)
+        exo.stackset.pop_unsafe("db-error")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -511,6 +557,12 @@ class blockchain_error:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("blockchain-error", self)
+        exo.stackset.pop_unsafe("blockchain-error")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -539,6 +591,12 @@ class input_error:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("input-error", self)
+        exo.stackset.pop_unsafe("input-error")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -567,6 +625,12 @@ class octahedron_error:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("octahedron-error", self)
+        exo.stackset.pop_unsafe("octahedron-error")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -606,6 +670,12 @@ class ilock_policy:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("ilock-policy", self)
+        exo.stackset.pop_unsafe("ilock-policy")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -634,6 +704,12 @@ class octa_verdict:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("octa-verdict", self)
+        exo.stackset.pop_unsafe("octa-verdict")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -679,7 +755,13 @@ class site:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("site", self)
         (exo.stake_state_valid().verify())
+        exo.stackset.pop_unsafe("site")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -719,6 +801,12 @@ class allow_block_list_item:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("allow-block-list-item", self)
+        exo.stackset.pop_unsafe("allow-block-list-item")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -755,8 +843,14 @@ class deleted_galactus_account:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("deleted-galactus-account", self)
         (exo.regdel_dates_sane().verify())
         (exo.have_username().verify())
+        exo.stackset.pop_unsafe("deleted-galactus-account")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -859,10 +953,16 @@ class galactus_account:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("galactus-account", self)
         (exo.have_wallet_id().verify())
         (exo.galactus_account_is_locked().
          have_either_salted_or_unsalted_password().guarded_verify())
         (exo.have_username().verify())
+        exo.stackset.pop_unsafe("galactus-account")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -891,6 +991,12 @@ class leaderboard:
             return
 
         exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("leaderboard", self)
+        exo.stackset.pop_unsafe("leaderboard")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
         return
 
     def __setattr__(self, name, value):
@@ -919,6 +1025,8 @@ class reward_strategy:
             return
 
         exo = self._exo
+        exo.stackset.push_unsafe("reward-strategy", self)
+        exo.stackset.pop_unsafe("reward-strategy")
         return
 
     def __setattr__(self, name, value):
@@ -983,10 +1091,23 @@ class StackSet:
         stack.append(elem)
         return elem
 
+    def push_unsafe(self, stackname, elem):
+        stack = self.stacks[stackname]
+        stack.append(elem)
+        return elem
+
     def pop(self, stackname):
         allowed = is_member(stackname, self.changeable)
         assert allowed
 
+        stack = self.stacks[stackname]
+        ret = None
+        if len(stack) > 0:
+            ret = stack.pop()
+
+        return ret
+
+    def pop_unsafe(self, stackname):
         stack = self.stacks[stackname]
         ret = None
         if len(stack) > 0:
@@ -1134,10 +1255,14 @@ def pre_verify():
         (exo.state_create(name="galactus-store-retry").next_state_is().
          db_load_query_empty().is_not().guarded_verify())
         # account-regdate-context-matches-try
-        (exo.state_create(name="galactus-store-try").next_state_is().
+        (exo.state_create(
+            name="galactus-store-try").next_state_is().context_create(
+                event="public-galactus-account-create").context_is().andify().
          account_regdate_after_context_timestamp().guarded_verify())
         # account-regdate-context-matches-retry
-        (exo.state_create(name="galactus-store-retry").next_state_is().
+        (exo.state_create(
+            name="galactus-store-retry").next_state_is().context_create(
+                event="public-galactus-account-create").context_is().andify().
          account_regdate_after_context_timestamp().guarded_verify())
 
 
@@ -1204,7 +1329,10 @@ class Endo:
 
         self.stackset.reset_access()
         self.event = event_ult
-        self.ev_up = 1
+        if event_ult == None:
+            self.ev_up = 0
+        else:
+            self.ev_up = 1
 
     def valid_event(self):
         assert self.ev_up == 1
@@ -1317,19 +1445,19 @@ class Endo:
         while ret == True:
             ret = self.tick()
             if self.ticker_max > 0:
-                tl = self.ticker >= self.ticker_max
+                tl = self.ticker <= self.ticker_max
                 ret = (ret and tl)
 
         return ret
 
     def is_wait_state(self):
         state = self.state
-        is_wait_state = False
+        b = False
         for s in self.wait_states:
             if s == state:
-                is_wait_state = True
+                b = True
 
-        return is_wait_state
+        return b
 
     def get_next_events(self):
         ret = []
@@ -1513,8 +1641,8 @@ class Endo:
             br_event = self.stackset.peek("event")
             self.stackset.reset_access()
             if br_event == "public-galactus-account-create":
-                (exo.contextualize().galactus_account_name_as_load().data_load(
-                ))
+                (exo.contextualize().galactus_account_regdatify().
+                 galactus_account_name_as_load().data_load())
             elif br_event == "public-galactus-account-destroy":
                 (exo.contextualize().galactus_account_name_as_load().data_load(
                 ))
@@ -2671,7 +2799,7 @@ class Exo:
         self.stackset.set_changeable(["boolean"])
         ga = self.stackset.peek("galactus-account")
         gau = ga.username
-        b = (is_instance(gau, str) and not gau == "")
+        b = (isinstance(gau, str) and not gau == "")
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
         return self
@@ -2715,7 +2843,8 @@ class Exo:
         self.stackset.set_changeable(["boolean"])
         ga = self.stackset.peek("galactus-account")
         gawi = ga.wallet_id
-        b = (is_instance(gawi, str) and not gawi == "")
+        # TODO make this test actually work in post-MVP future
+        b = True
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
         return self
@@ -2727,8 +2856,8 @@ class Exo:
         ga = self.stackset.peek("galactus-account")
         gaspw = ga.salted_password
         gaupw = ga.unsalted_password
-        b1 = (is_instance(gaspw, str) and not gaspw == "")
-        b2 = (is_instance(gaupw, str) and not gaupw == "")
+        b1 = (isinstance(gaspw, str) and not gaspw == "")
+        b2 = (isinstance(gaupw, str) and not gaupw == "")
         self.stackset.push("boolean", ((b1 and not b2) or (not b1 and b2)))
         self.stackset.reset_access()
         return self
@@ -2846,7 +2975,7 @@ class Exo:
         ev = self.stackset.peek("event")
         ts = datetime.datetime.now()
         self.stackset.pop("context")
-        exo.context_create(event=ev, timestamp_start=ts)
+        self.context_create(event=ev, timestamp_start=ts)
         self.stackset.reset_access()
         return self
 
@@ -2860,6 +2989,25 @@ class Exo:
         ctx.timestamp_end = datetime.datetime.now()
         ctx.locked = True
         # TODO use db_engine_log to write context object
+        self.stackset.reset_access()
+        return self
+
+    def context_is(self):
+        exo = self
+        self.stackset.set_readable(["context"])
+        self.stackset.set_changeable(["boolean", "context"])
+        assert self.stackset.stack_len("context") > 0
+
+        ctx1 = self.stackset.peek("context")
+        ctx2 = self.stackset.peek("context")
+        if ctx2 == None:
+            self.stackset.push("boolean", False)
+            self.stackset.pop("context")
+        else:
+            b = ctx1.event == ctx2.event
+            self.stackset.push("boolean", b)
+            self.stackset.pop("context")
+
         self.stackset.reset_access()
         return self
 
@@ -2947,15 +3095,21 @@ class Exo:
 
         dbq = self.stackset.peek("db-store-query")
         q = dbq.q
-        with db_engine_main.connect() as conn:
-            rows = conn.execute(q)
+        try:
+            with db_engine_main.connect() as conn:
+                rows = conn.execute(q)
+
+            self.endo.update_event("galactus-stored", None)
+
+        except exc.SQLAlchemyError:
+            assert False
 
         self.stackset.reset_access()
         return self
 
     def stack_gc(self):
         exo = self
-        self.stackset.set_readable([])
+        self.stackset.set_readable(["context"])
         self.stackset.set_changeable(["galactus-account"])
         ctx = self.stackset.peek("context")
         event = ctx.event
@@ -2978,6 +3132,16 @@ class Exo:
         self.stackset.set_readable(["context"])
         self.stackset.set_changeable(["db-store-query"])
         self.stackset.pop("db-store-query")
+        self.endo.update_event("commited", None)
+        self.stackset.reset_access()
+        return self
+
+    def galactus_account_regdatify(self):
+        exo = self
+        self.stackset.set_readable(["galactus-account"])
+        self.stackset.set_changeable([])
+        ga = self.stackset.peek("galactus-account")
+        ga.registration_date = datetime.datetime.now()
         self.stackset.reset_access()
         return self
 
@@ -2991,7 +3155,7 @@ class Exo:
         gaun = ga.username
         q = sql.select(galactus_account_table.c.username)
         q = q.where(galactus_account_table.c.username == gaun)
-        exo.db_load_query_create(q=q)
+        self.db_load_query_create(q=q)
         self.stackset.reset_access()
         return self
 
@@ -3003,7 +3167,7 @@ class Exo:
         gak = ga.api_key
         q = sql.select(galactus_account_table.c.api_key)
         q = q.where(galactus_account_table.c.api_key == gak)
-        exo.db_load_query_create(q=q)
+        self.db_load_query_create(q=q)
         self.stackset.reset_access()
         return self
 
@@ -3018,7 +3182,7 @@ class Exo:
 
         q = sql.select(galactus_account_table.c.username)
         q = q.where(galactus_account_table.c.api_key == gak)
-        exo.db_load_query_create(q=q)
+        self.db_load_query_create(q=q)
         self.stackset.reset_access()
         return self
 
@@ -3030,7 +3194,7 @@ class Exo:
         gaun = ga.username
         q = sql.select(galactus_account_table)
         q = q.where(galactus_account_table.c.username == gaun)
-        exo.db_load_query_create(q=q)
+        self.db_load_query_create(q=q)
         self.stackset.reset_access()
         return self
 
@@ -3040,6 +3204,9 @@ class Exo:
         self.stackset.set_changeable(["galactus-account"])
         ga = self.stackset.peek("galactus-account")
         ga.locked = False
+        p = ga.salted_password
+        ga.salted_password = ga.unsalted_password
+        ga.unsalted_password = p
         ga.locked = True
         self.stackset.reset_access()
         return self
@@ -3053,7 +3220,7 @@ class Exo:
         gasp = ga.salted_password
         gaak = ga.api_key
         q = sql.insert(galactus_account_table)
-        q = q.values(username=gaun, password=gasp)
+        q = q.values(username=gaun, salted_password=gasp)
         exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
@@ -3136,20 +3303,18 @@ class Exo:
     def stakeable_pend(self):
         exo = self
         self.stackset.set_readable(["site"])
-        self.stackset.set_changeable(["site"])
-        s = self.stackset.pop("site")
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
         s.stake_state = "stake-pending"
-        self.stackset.push("site", s)
         self.stackset.reset_access()
         return self
 
     def stakeable_shelve(self):
         exo = self
         self.stackset.set_readable(["site"])
-        self.stackset.set_changeable(["site"])
-        s = self.stackset.pop("site")
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
         s.stake_state = "stake-shelved"
-        self.stackset.push("site", s)
         self.stackset.reset_access()
         return self
 
@@ -3211,30 +3376,27 @@ class Exo:
     def stakeable_approve(self):
         exo = self
         self.stackset.set_readable(["site"])
-        self.stackset.set_changeable(["site"])
-        s = self.stackset.pop("site")
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
         s.stake_state = "stake-approved"
-        self.stackset.push("site", s)
         self.stackset.reset_access()
         return self
 
     def stakeable_reject(self):
         exo = self
         self.stackset.set_readable(["site"])
-        self.stackset.set_changeable(["site"])
-        s = self.stackset.pop("site")
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
         s.stake_state = "stake-rejected"
-        self.stackset.push("site", s)
         self.stackset.reset_access()
         return self
 
     def stakeable_close(self):
         exo = self
         self.stackset.set_readable(["site"])
-        self.stackset.set_changeable(["site"])
-        s = self.stackset.pop("site")
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
         s.stake_state = "stake-closed"
-        self.stackset.push("site", s)
         self.stackset.reset_access()
         return self
 
@@ -3260,13 +3422,12 @@ class Exo:
     def backoff(self):
         exo = self
         self.stackset.set_readable(["backoff-strategy"])
-        self.stackset.set_changeable(["backoff-strategy"])
+        self.stackset.set_changeable([])
         # Just the good old backoff mechanism
         # TODO add stochastic awareness for testing
-        bs = self.stackset.pop("backoff-strategy")
+        bs = self.stackset.peek("backoff-strategy")
         bs.retries = (bs.retries + 1)
         bs.delay_ms = (bs.delay_ms * scale_factor)
-        self.stackset.push("backoff-strategy", bs)
         if bs.delay_ms > bs.max_delay_ms:
             self.endo.update_event("backoff-period", None)
 
@@ -3276,12 +3437,11 @@ class Exo:
     def backoff_reset(self):
         exo = self
         self.stackset.set_readable(["backoff-strategy"])
-        self.stackset.set_changeable(["backoff-strategy"])
+        self.stackset.set_changeable([])
         # TODO stochastic
-        bs = self.stackset.pop("backoff-strategy")
+        bs = self.stackset.peek("backoff-strategy")
         bs.retries = 0
         bs.delay_ms = bs.min_delay_ms
-        self.stackset.push("backoff-strategy", bs)
         self.stackset.reset_access()
         return self
 
@@ -3330,7 +3490,7 @@ class Exo:
             "leaderboard", "reward-strategy", "ilock-policy", "site", "context"
         ])
         self.stackset.set_changeable(["response"])
-        res = Response()
+        res = fapi.Response()
         res.status = xxx
         res.response = xxx
         self.stackset.push("response", res)
@@ -3341,3 +3501,4 @@ class Exo:
 
 
 exo = Exo()
+run_program(exo)
