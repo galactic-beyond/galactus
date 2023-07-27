@@ -2,6 +2,7 @@ import random as random
 import datetime as datetime
 import sqlalchemy as sql
 from sqlalchemy import exc
+from sqlalchemy.pool import StaticPool
 import hypothesis as hyp
 from hypothesis.provisional import domains, urls
 from hypothesis import given
@@ -47,8 +48,14 @@ pub_key = "ceb62cfe-6ad9-4dab-8b34-46fcd6230d8c"
 # Initialize Database Tables
 db_path_main = "sqlite+pysqlite:///:memory:"
 db_path_logs = "sqlite+pysqlite:///:memory:"
-db_engine_main = sql.create_engine(db_path_main)
-db_engine_logs = sql.create_engine(db_path_logs)
+connectargs = {"check_same_thread": False}
+poolclass = StaticPool
+db_engine_main = sql.create_engine(db_path_main,
+                                   connect_args=connectargs,
+                                   poolclass=poolclass)
+db_engine_logs = sql.create_engine(db_path_logs,
+                                   connect_args=connectargs,
+                                   poolclass=poolclass)
 db_metadata_logs = sql.MetaData()
 db_metadata_main = sql.MetaData()
 log_table = sql.Table("galactus_logs", db_metadata_logs,
@@ -1705,7 +1712,7 @@ class Endo:
 
         endo.add_transition("begin-here", "ready", "ignite")
 
-        def begin_here_ready_ignite(endo):
+        def begin_here__ready__ignite(endo):
             pre_verify()
             endo.event = None
             (exo.use_default_ilock_policy().use_default_reward_strategy().
@@ -1722,11 +1729,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "begin-here", "ignite",
-                  begin_here_ready_ignite)
+                  begin_here__ready__ignite)
 
         endo.add_transition("ready", "ready", "hello")
 
-        def ready_ready_hello(endo):
+        def ready__ready__hello(endo):
             pre_verify()
             endo.event = None
             (exo.string_create(val="hi"))
@@ -1736,11 +1743,11 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "ready", "hello", ready_ready_hello)
+        dict_2put(endo.transition_code, "ready", "hello", ready__ready__hello)
 
         endo.add_transition("ready", "galactus-load-try", "@public-mutate")
 
-        def ready_galactus_load_try_set_public_mutate(endo):
+        def ready__galactus_load_try__set_public_mutate(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -1777,11 +1784,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@public-mutate",
-                  ready_galactus_load_try_set_public_mutate)
+                  ready__galactus_load_try__set_public_mutate)
 
         endo.add_transition("ready", "ready", "invalid-input")
 
-        def ready_ready_invalid_input(endo):
+        def ready__ready__invalid_input(endo):
             pre_verify()
             endo.event = None
             (exo.respond())
@@ -1792,11 +1799,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "invalid-input",
-                  ready_ready_invalid_input)
+                  ready__ready__invalid_input)
 
         endo.add_transition("ready", "galactus-store-try", "no-policy-stored")
 
-        def ready_galactus_store_try_no_policy_stored(endo):
+        def ready__galactus_store_try__no_policy_stored(endo):
             pre_verify()
             endo.event = None
             (exo.ilock_policy_as_store().data_store())
@@ -1807,11 +1814,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "no-policy-stored",
-                  ready_galactus_store_try_no_policy_stored)
+                  ready__galactus_store_try__no_policy_stored)
 
         endo.add_transition("ready", "panic", "multiple-policies")
 
-        def ready_panic_multiple_policies(endo):
+        def ready__panic__multiple_policies(endo):
             pre_verify()
             endo.event = None
             (exo.harakiri())
@@ -1822,12 +1829,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "multiple-policies",
-                  ready_panic_multiple_policies)
+                  ready__panic__multiple_policies)
 
         endo.add_transition("ready", "galactus-load-try",
                             "load-reward-strategy")
 
-        def ready_galactus_load_try_load_reward_strategy(endo):
+        def ready__galactus_load_try__load_reward_strategy(endo):
             pre_verify()
             endo.event = None
             (exo.contextualize().load_reward_strategy_table())
@@ -1838,12 +1845,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "load-reward-strategy",
-                  ready_galactus_load_try_load_reward_strategy)
+                  ready__galactus_load_try__load_reward_strategy)
 
         endo.add_transition("site-flag-try", "stakeable-pending",
                             "site-reachable")
 
-        def site_flag_try_stakeable_pending_site_reachable(endo):
+        def site_flag_try__stakeable_pending__site_reachable(endo):
             pre_verify()
             endo.event = None
             (exo.stakeable_pend())
@@ -1854,12 +1861,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "site-flag-try", "site-reachable",
-                  site_flag_try_stakeable_pending_site_reachable)
+                  site_flag_try__stakeable_pending__site_reachable)
 
         endo.add_transition("site-unlock-try", "stakeable-pending",
                             "site-reachable")
 
-        def site_unlock_try_stakeable_pending_site_reachable(endo):
+        def site_unlock_try__stakeable_pending__site_reachable(endo):
             pre_verify()
             # TODO
             assert False
@@ -1867,12 +1874,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "site-unlock-try", "site-reachable",
-                  site_unlock_try_stakeable_pending_site_reachable)
+                  site_unlock_try__stakeable_pending__site_reachable)
 
         endo.add_transition("stakeable-pending", "galactus-store-try",
                             "@always")
 
-        def stakeable_pending_galactus_store_try_set_always(endo):
+        def stakeable_pending__galactus_store_try__set_always(endo):
             pre_verify()
             endo.event = None
             (exo.stakeable_as_store().data_store())
@@ -1883,12 +1890,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "stakeable-pending", "@always",
-                  stakeable_pending_galactus_store_try_set_always)
+                  stakeable_pending__galactus_store_try__set_always)
 
         endo.add_transition("stakeable-shelved", "galactus-store-try",
                             "@always")
 
-        def stakeable_shelved_galactus_store_try_set_always(endo):
+        def stakeable_shelved__galactus_store_try__set_always(endo):
             pre_verify()
             # TODO
             assert False
@@ -1896,12 +1903,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "stakeable-shelved", "@always",
-                  stakeable_shelved_galactus_store_try_set_always)
+                  stakeable_shelved__galactus_store_try__set_always)
 
         endo.add_transition("site-flag-try", "stakeable-shelved",
                             "site-unreachable")
 
-        def site_flag_try_stakeable_shelved_site_unreachable(endo):
+        def site_flag_try__stakeable_shelved__site_unreachable(endo):
             pre_verify()
             endo.event = None
             (exo.stakeable_shelve())
@@ -1912,12 +1919,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "site-flag-try", "site-unreachable",
-                  site_flag_try_stakeable_shelved_site_unreachable)
+                  site_flag_try__stakeable_shelved__site_unreachable)
 
         endo.add_transition("site-unlock-try", "stakeable-shelved",
                             "site-unreachable")
 
-        def site_unlock_try_stakeable_shelved_site_unreachable(endo):
+        def site_unlock_try__stakeable_shelved__site_unreachable(endo):
             pre_verify()
             # TODO
             assert False
@@ -1925,11 +1932,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "site-unlock-try", "site-unreachable",
-                  site_unlock_try_stakeable_shelved_site_unreachable)
+                  site_unlock_try__stakeable_shelved__site_unreachable)
 
         endo.add_transition("ready", "galactus-load-try", "@public-fetch")
 
-        def ready_galactus_load_try_set_public_fetch(endo):
+        def ready__galactus_load_try__set_public_fetch(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -1953,11 +1960,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@public-fetch",
-                  ready_galactus_load_try_set_public_fetch)
+                  ready__galactus_load_try__set_public_fetch)
 
         endo.add_transition("ready", "test-site-malicious", "public-site-safe")
 
-        def ready_test_site_malicious_public_site_safe(endo):
+        def ready__test_site_malicious__public_site_safe(endo):
             pre_verify()
             endo.event = None
             (exo.contextualize())
@@ -1968,12 +1975,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "public-site-safe",
-                  ready_test_site_malicious_public_site_safe)
+                  ready__test_site_malicious__public_site_safe)
 
         endo.add_transition("test-site-malicious", "increment-user-balance",
                             "@always")
 
-        def test_site_malicious_increment_user_balance_set_always(endo):
+        def test_site_malicious__increment_user_balance__set_always(endo):
             pre_verify()
             # TODO
             assert False
@@ -1981,12 +1988,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "test-site-malicious", "@always",
-                  test_site_malicious_increment_user_balance_set_always)
+                  test_site_malicious__increment_user_balance__set_always)
 
         endo.add_transition("increment-user-balance", "galactus-store-try",
                             "@always")
 
-        def increment_user_balance_galactus_store_try_set_always(endo):
+        def increment_user_balance__galactus_store_try__set_always(endo):
             pre_verify()
             # TODO
             assert False
@@ -1994,11 +2001,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "increment-user-balance", "@always",
-                  increment_user_balance_galactus_store_try_set_always)
+                  increment_user_balance__galactus_store_try__set_always)
 
         endo.add_transition("ready", "galactus-store-try", "@admin-db-change")
 
-        def ready_galactus_store_try_set_admin_db_change(endo):
+        def ready__galactus_store_try__set_admin_db_change(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2022,11 +2029,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@admin-db-change",
-                  ready_galactus_store_try_set_admin_db_change)
+                  ready__galactus_store_try__set_admin_db_change)
 
         endo.add_transition("galactus-load-try", "ready", "galactus-loaded")
 
-        def galactus_load_try_ready_galactus_loaded(endo):
+        def galactus_load_try__ready__galactus_loaded(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().load_query_discard().respond().stack_gc().
@@ -2038,12 +2045,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "galactus-load-try", "galactus-loaded",
-                  galactus_load_try_ready_galactus_loaded)
+                  galactus_load_try__ready__galactus_loaded)
 
         endo.add_transition("galactus-load-try", "galactus-load-retry",
                             "galactus-load-error")
 
-        def galactus_load_try_galactus_load_retry_galactus_load_error(endo):
+        def galactus_load_try__galactus_load_retry__galactus_load_error(endo):
             pre_verify()
             endo.event = None
             (exo.backoff().data_load())
@@ -2055,12 +2062,13 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-try",
                   "galactus-load-error",
-                  galactus_load_try_galactus_load_retry_galactus_load_error)
+                  galactus_load_try__galactus_load_retry__galactus_load_error)
 
         endo.add_transition("galactus-load-retry", "galactus-load-retry",
                             "galactus-load-error")
 
-        def galactus_load_retry_galactus_load_retry_galactus_load_error(endo):
+        def galactus_load_retry__galactus_load_retry__galactus_load_error(
+                endo):
             pre_verify()
             endo.event = None
             (exo.backoff().data_load())
@@ -2070,13 +2078,13 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-load-retry",
-                  "galactus-load-error",
-                  galactus_load_retry_galactus_load_retry_galactus_load_error)
+        dict_2put(
+            endo.transition_code, "galactus-load-retry", "galactus-load-error",
+            galactus_load_retry__galactus_load_retry__galactus_load_error)
 
         endo.add_transition("galactus-load-retry", "ready", "galactus-loaded")
 
-        def galactus_load_retry_ready_galactus_loaded(endo):
+        def galactus_load_retry__ready__galactus_loaded(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().stack_gc())
@@ -2087,12 +2095,13 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "galactus-load-retry",
-                  "galactus-loaded", galactus_load_retry_ready_galactus_loaded)
+                  "galactus-loaded",
+                  galactus_load_retry__ready__galactus_loaded)
 
         endo.add_transition("galactus-load-retry", "notify-admin",
                             "backoff-period")
 
-        def galactus_load_retry_notify_admin_backoff_period(endo):
+        def galactus_load_retry__notify_admin__backoff_period(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().load_query_discard())
@@ -2104,12 +2113,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-retry",
                   "backoff-period",
-                  galactus_load_retry_notify_admin_backoff_period)
+                  galactus_load_retry__notify_admin__backoff_period)
 
         endo.add_transition("galactus-store-try", "commit-changes",
                             "galactus-stored")
 
-        def galactus_store_try_commit_changes_galactus_stored(endo):
+        def galactus_store_try__commit_changes__galactus_stored(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().store_query_discard())
@@ -2121,12 +2130,13 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-store-try",
                   "galactus-stored",
-                  galactus_store_try_commit_changes_galactus_stored)
+                  galactus_store_try__commit_changes__galactus_stored)
 
         endo.add_transition("galactus-store-try", "galactus-store-retry",
                             "galactus-store-error")
 
-        def galactus_store_try_galactus_store_retry_galactus_store_error(endo):
+        def galactus_store_try__galactus_store_retry__galactus_store_error(
+                endo):
             pre_verify()
             endo.event = None
             (exo.backoff().data_store())
@@ -2138,12 +2148,12 @@ class Endo:
 
         dict_2put(
             endo.transition_code, "galactus-store-try", "galactus-store-error",
-            galactus_store_try_galactus_store_retry_galactus_store_error)
+            galactus_store_try__galactus_store_retry__galactus_store_error)
 
         endo.add_transition("galactus-store-retry", "galactus-store-retry",
                             "galactus-store-error")
 
-        def galactus_store_retry_galactus_store_retry_galactus_store_error(
+        def galactus_store_retry__galactus_store_retry__galactus_store_error(
                 endo):
             pre_verify()
             endo.event = None
@@ -2157,12 +2167,12 @@ class Endo:
         dict_2put(
             endo.transition_code, "galactus-store-retry",
             "galactus-store-error",
-            galactus_store_retry_galactus_store_retry_galactus_store_error)
+            galactus_store_retry__galactus_store_retry__galactus_store_error)
 
         endo.add_transition("galactus-store-retry", "commit-changes",
                             "galactus-stored")
 
-        def galactus_store_retry_commit_changes_galactus_stored(endo):
+        def galactus_store_retry__commit_changes__galactus_stored(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset())
@@ -2174,12 +2184,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-store-retry",
                   "galactus-stored",
-                  galactus_store_retry_commit_changes_galactus_stored)
+                  galactus_store_retry__commit_changes__galactus_stored)
 
         endo.add_transition("galactus-store-retry", "notify-admin",
                             "backoff-period")
 
-        def galactus_store_retry_notify_admin_backoff_period(endo):
+        def galactus_store_retry__notify_admin__backoff_period(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().store_query_discard())
@@ -2191,11 +2201,11 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-store-retry",
                   "backoff-period",
-                  galactus_store_retry_notify_admin_backoff_period)
+                  galactus_store_retry__notify_admin__backoff_period)
 
         endo.add_transition("galactus-load-try", "ready", "@conflict")
 
-        def galactus_load_try_ready_set_conflict(endo):
+        def galactus_load_try__ready__set_conflict(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2215,11 +2225,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "galactus-load-try", "@conflict",
-                  galactus_load_try_ready_set_conflict)
+                  galactus_load_try__ready__set_conflict)
 
         endo.add_transition("galactus-load-retry", "ready", "@conflict")
 
-        def galactus_load_retry_ready_set_conflict(endo):
+        def galactus_load_retry__ready__set_conflict(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2239,12 +2249,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "galactus-load-retry", "@conflict",
-                  galactus_load_retry_ready_set_conflict)
+                  galactus_load_retry__ready__set_conflict)
 
         endo.add_transition("galactus-load-try", "galactus-store-try",
                             "galactus-account-non-existent")
 
-        def galactus_load_try_galactus_store_try_galactus_account_non_existent(
+        def galactus_load_try__galactus_store_try__galactus_account_non_existent(
                 endo):
             pre_verify()
             endo.event = None
@@ -2260,12 +2270,13 @@ class Endo:
         dict_2put(
             endo.transition_code, "galactus-load-try",
             "galactus-account-non-existent",
-            galactus_load_try_galactus_store_try_galactus_account_non_existent)
+            galactus_load_try__galactus_store_try__galactus_account_non_existent
+        )
 
         endo.add_transition("galactus-load-retry", "galactus-store-try",
                             "galactus-account-non-existent")
 
-        def galactus_load_retry_galactus_store_try_galactus_account_non_existent(
+        def galactus_load_retry__galactus_store_try__galactus_account_non_existent(
                 endo):
             pre_verify()
             # TODO
@@ -2276,13 +2287,13 @@ class Endo:
         dict_2put(
             endo.transition_code, "galactus-load-retry",
             "galactus-account-non-existent",
-            galactus_load_retry_galactus_store_try_galactus_account_non_existent
+            galactus_load_retry__galactus_store_try__galactus_account_non_existent
         )
 
         endo.add_transition("galactus-load-try", "galactus-store-try",
                             "galactus-account-can-logout")
 
-        def galactus_load_try_galactus_store_try_galactus_account_can_logout(
+        def galactus_load_try__galactus_store_try__galactus_account_can_logout(
                 endo):
             pre_verify()
             endo.event = None
@@ -2297,12 +2308,12 @@ class Endo:
         dict_2put(
             endo.transition_code, "galactus-load-try",
             "galactus-account-can-logout",
-            galactus_load_try_galactus_store_try_galactus_account_can_logout)
+            galactus_load_try__galactus_store_try__galactus_account_can_logout)
 
         endo.add_transition("galactus-load-retry", "galactus-store-try",
                             "galactus-account-can-logout")
 
-        def galactus_load_retry_galactus_store_try_galactus_account_can_logout(
+        def galactus_load_retry__galactus_store_try__galactus_account_can_logout(
                 endo):
             pre_verify()
             # TODO
@@ -2313,12 +2324,13 @@ class Endo:
         dict_2put(
             endo.transition_code, "galactus-load-retry",
             "galactus-account-can-logout",
-            galactus_load_retry_galactus_store_try_galactus_account_can_logout)
+            galactus_load_retry__galactus_store_try__galactus_account_can_logout
+        )
 
         endo.add_transition("galactus-load-try", "ready",
                             "galactus-account-can-login")
 
-        def galactus_load_try_ready_galactus_account_can_login(endo):
+        def galactus_load_try__ready__galactus_account_can_login(endo):
             pre_verify()
             endo.event = None
             (exo.load_query_discard().galactus_account_verify_password().
@@ -2332,12 +2344,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-try",
                   "galactus-account-can-login",
-                  galactus_load_try_ready_galactus_account_can_login)
+                  galactus_load_try__ready__galactus_account_can_login)
 
         endo.add_transition("galactus-load-retry", "ready",
                             "galactus-account-can-login")
 
-        def galactus_load_retry_ready_galactus_account_can_login(endo):
+        def galactus_load_retry__ready__galactus_account_can_login(endo):
             pre_verify()
             # TODO
             assert False
@@ -2346,12 +2358,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-retry",
                   "galactus-account-can-login",
-                  galactus_load_retry_ready_galactus_account_can_login)
+                  galactus_load_retry__ready__galactus_account_can_login)
 
         endo.add_transition("galactus-load-try", "ready",
                             "galactus-account-cannot-logout")
 
-        def galactus_load_try_ready_galactus_account_cannot_logout(endo):
+        def galactus_load_try__ready__galactus_account_cannot_logout(endo):
             pre_verify()
             endo.event = None
             (exo.load_query_discard().response_create(
@@ -2364,12 +2376,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-try",
                   "galactus-account-cannot-logout",
-                  galactus_load_try_ready_galactus_account_cannot_logout)
+                  galactus_load_try__ready__galactus_account_cannot_logout)
 
         endo.add_transition("galactus-load-retry", "ready",
                             "galactus-account-cannot-logout")
 
-        def galactus_load_retry_ready_galactus_account_cannot_logout(endo):
+        def galactus_load_retry__ready__galactus_account_cannot_logout(endo):
             pre_verify()
             # TODO
             assert False
@@ -2378,12 +2390,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-retry",
                   "galactus-account-cannot-logout",
-                  galactus_load_retry_ready_galactus_account_cannot_logout)
+                  galactus_load_retry__ready__galactus_account_cannot_logout)
 
         endo.add_transition("galactus-load-try", "ready",
                             "galactus-account-cannot-login")
 
-        def galactus_load_try_ready_galactus_account_cannot_login(endo):
+        def galactus_load_try__ready__galactus_account_cannot_login(endo):
             pre_verify()
             endo.event = None
             (exo.load_query_discard().response_create(
@@ -2396,12 +2408,12 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-try",
                   "galactus-account-cannot-login",
-                  galactus_load_try_ready_galactus_account_cannot_login)
+                  galactus_load_try__ready__galactus_account_cannot_login)
 
         endo.add_transition("galactus-load-retry", "ready",
                             "galactus-account-cannot-login")
 
-        def galactus_load_retry_ready_galactus_account_cannot_login(endo):
+        def galactus_load_retry__ready__galactus_account_cannot_login(endo):
             pre_verify()
             # TODO
             assert False
@@ -2410,11 +2422,11 @@ class Endo:
 
         dict_2put(endo.transition_code, "galactus-load-retry",
                   "galactus-account-cannot-login",
-                  galactus_load_retry_ready_galactus_account_cannot_login)
+                  galactus_load_retry__ready__galactus_account_cannot_login)
 
         endo.add_transition("notify-admin", "ready", "commited")
 
-        def notify_admin_ready_commited(endo):
+        def notify_admin__ready__commited(endo):
             pre_verify()
             endo.event = None
             (exo.context_log().response_create(
@@ -2426,11 +2438,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "notify-admin", "commited",
-                  notify_admin_ready_commited)
+                  notify_admin__ready__commited)
 
         endo.add_transition("commit-changes", "ready", "commited")
 
-        def commit_changes_ready_commited(endo):
+        def commit_changes__ready__commited(endo):
             pre_verify()
             endo.event = None
             (exo.context_log().response_create(
@@ -2442,7 +2454,7 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "commit-changes", "commited",
-                  commit_changes_ready_commited)
+                  commit_changes__ready__commited)
 
 
 class Exo:
@@ -4065,6 +4077,16 @@ class UserRegistration(BaseModel):
     username: str
 
 
+class ApiKey(BaseModel):
+    key: str
+
+
+class UserCreds(BaseModel):
+    key: str
+    username: str
+    email: str
+
+
 class UserDeletion(BaseModel):
     password: str
     confirm: bool
@@ -4082,29 +4104,44 @@ class UserLogout(BaseModel):
     username: str
 
 
+endo = Endo()
+endo.initialize_machine()
+exo.set_endo(endo)
+endo.send("ignite")
 app = fapi.FastAPI()
 
 
-@app.post("user-create")
-def http_user_create(user_reg: UserRegistration):
+@app.post("/user-create")
+def http_user_create(user_reg: UserRegistration) -> ApiKey:
+    username = user_reg.username
+    email = user_reg.email
+    password = user_reg.password
+    exo.galactus_account_create(username=username,
+                                unsalted_password=password,
+                                email=email)
+    endo.send("public-galactus-account-create")
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    new_key = dict_get(rsp.body, "key")
+    response = ApiKey(key=new_key)
+    return response
+
+
+@app.post("/user-delete")
+def http_user_delete(user_reg: UserDeletion) -> ApiKey:
     assert False
 
 
-@app.post("user-delete")
-def http_user_delete(user_reg: UserDeletion):
+@app.post("/user-login")
+def http_user_login(user_reg: UserLogin) -> UserCreds:
     assert False
 
 
-@app.post("user-login")
-def http_user_login(user_reg: UserLogin):
-    assert False
-
-
-@app.post("user-logout")
-def http_user_logout(user_reg: UserLogout):
+@app.post("/user-logout")
+def http_user_logout(user_reg: UserLogout) -> ApiKey:
     assert False
 
 
 # Simple Test
-run_program(exo)
+#run_program(exo)
 # TODO define verb wallet_as_load
