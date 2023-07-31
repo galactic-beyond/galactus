@@ -15,6 +15,8 @@ buildPythonPackage {
     sqlalchemy
     requests
     hypothesis
+    argon2-cffi
+    uvicorn
     #tld
     #beautifulsoup4
     #pyspellchecker

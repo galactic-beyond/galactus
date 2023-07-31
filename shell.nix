@@ -14,6 +14,8 @@ let
     sqlalchemy
     requests
     hypothesis
+    argon2-cffi
+    uvicorn
     #tld
     #APScheduler
     #beautifulsoup4
