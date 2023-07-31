@@ -48,13 +48,13 @@ pub_key = "ceb62cfe-6ad9-4dab-8b34-46fcd6230d8c"
 # Initialize Database Tables
 db_path_main = "sqlite+pysqlite:///:memory:"
 db_path_logs = "sqlite+pysqlite:///:memory:"
-connectargs = {"check_same_thread": False}
+connect_args = {"check_same_thread": False}
 poolclass = StaticPool
 db_engine_main = sql.create_engine(db_path_main,
-                                   connect_args=connectargs,
+                                   connect_args=connect_args,
                                    poolclass=poolclass)
 db_engine_logs = sql.create_engine(db_path_logs,
-                                   connect_args=connectargs,
+                                   connect_args=connect_args,
                                    poolclass=poolclass)
 db_metadata_logs = sql.MetaData()
 db_metadata_main = sql.MetaData()
@@ -139,7 +139,8 @@ def response_body_keys(bod):
     return keys
 
 
-def key_response_sane(keys, bod):
+def key_response_sane(bod):
+    keys = response_body_keys(bod)
     b = True
     b = (b and not bod == None)
     b = (b and len(keys) == 1)
@@ -148,7 +149,14 @@ def key_response_sane(keys, bod):
     return b
 
 
-def login_response_sane(keys, bod):
+def pub_key_response_sane(bod):
+    b = key_response_sane(bod)
+    b = (b and bod["key"] == pub_key)
+    return b
+
+
+def login_response_sane(bod):
+    keys = response_body_keys(bod)
     b = True
     b = (b and not bod == None)
     b = (b and len(keys) == 3)
@@ -1376,6 +1384,23 @@ def pre_verify():
             name="galactus-store-retry").next_state_is().context_create(
                 event="public-galactus-account-create").context_is().andify().
          account_regdate_after_context_timestamp().guarded_verify())
+        # two-accounts-for-logout-retry
+        (exo.state_create(
+            name="galactus-store-retry").next_state_is().context_create(
+                event="public-galactus-account-logout").context_is().andify().
+         number_create(
+             val=2).galactus_account_length().number_gteq().guarded_verify())
+        # two-accounts-for-logout-try
+        (exo.state_create(
+            name="galactus-store-try").next_state_is().context_create(
+                event="public-galactus-account-logout").context_is().andify().
+         number_create(
+             val=2).galactus_account_length().number_gteq().guarded_verify())
+        # new-api-key-on-logout
+        (exo.state_create(name="ready").next_state_is().state_create(
+            name="begin-here").state_is().is_not().andify().context_create(
+                event="public-galactus-account-logout").context_is().andify().
+         galactus_account_has_new_api_key().andify().guarded_verify())
 
 
 def post_verify():
@@ -1384,11 +1409,6 @@ def post_verify():
         (exo.state_create(name="ready").next_state_is().state_create(
             name="begin-here").state_is().is_not().andify().response_empty().
          is_not().guarded_verify())
-        # new-api-key-on-logout
-        (exo.state_create(name="ready").next_state_is().state_create(
-            name="begin-here").state_is().is_not().andify().context_create(
-                event="public-galactus-account-logout").context_is().andify().
-         galactus_account_has_new_api_key().andify().guarded_verify())
         # galactus-account-last-req
         (exo.state_create(name="ready").prev_state_is().galactus_account_empty(
         ).is_not().andify().galactus_account_has_last_req().guarded_verify())
@@ -2367,7 +2387,7 @@ class Endo:
             pre_verify()
             endo.event = None
             (exo.load_query_discard().response_create(
-                status=401).respond().decontextualize())
+                status=401).respond().stack_gc().decontextualize())
             if endo.event == None:
                 endo.update_event(None, None)
 
@@ -2399,7 +2419,7 @@ class Endo:
             pre_verify()
             endo.event = None
             (exo.load_query_discard().response_create(
-                status=401).respond().decontextualize())
+                status=401).respond().stack_gc().decontextualize())
             if endo.event == None:
                 endo.update_event(None, None)
 
@@ -2588,8 +2608,10 @@ class Exo:
         return self
 
     def galactus_account_length(self):
-        l = len(self.stackset.stacks["galactus-account"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "galactus-account"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def galactus_account_create(self,
@@ -2640,8 +2662,10 @@ class Exo:
         return self
 
     def site_length(self):
-        l = len(self.stackset.stacks["site"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "site"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def site_create(self,
@@ -2668,8 +2692,10 @@ class Exo:
         return self
 
     def leaderboard_length(self):
-        l = len(self.stackset.stacks["leaderboard"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "leaderboard"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def leaderboard_create(self, dummy=0):
@@ -2689,8 +2715,10 @@ class Exo:
         return self
 
     def paging_control_length(self):
-        l = len(self.stackset.stacks["paging-control"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "paging-control"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def paging_control_create(self, filt="", page_num=0, quantity=0):
@@ -2710,8 +2738,10 @@ class Exo:
         return self
 
     def context_length(self):
-        l = len(self.stackset.stacks["context"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "context"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def context_create(self,
@@ -2735,8 +2765,10 @@ class Exo:
         return self
 
     def db_load_query_length(self):
-        l = len(self.stackset.stacks["db-load-query"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "db-load-query"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def db_load_query_create(self, q=None):
@@ -2756,8 +2788,10 @@ class Exo:
         return self
 
     def db_store_query_length(self):
-        l = len(self.stackset.stacks["db-store-query"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "db-store-query"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def db_store_query_create(self, q=None):
@@ -2777,8 +2811,10 @@ class Exo:
         return self
 
     def ilock_policy_length(self):
-        l = len(self.stackset.stacks["ilock-policy"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "ilock-policy"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def ilock_policy_create(self,
@@ -2802,8 +2838,10 @@ class Exo:
         return self
 
     def reward_strategy_length(self):
-        l = len(self.stackset.stacks["reward-strategy"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "reward-strategy"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def reward_strategy_create(self, dummy=0):
@@ -2823,8 +2861,10 @@ class Exo:
         return self
 
     def response_length(self):
-        l = len(self.stackset.stacks["response"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "response"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def response_create(self, body=None, status=200):
@@ -2844,8 +2884,10 @@ class Exo:
         return self
 
     def octa_verdict_length(self):
-        l = len(self.stackset.stacks["octa-verdict"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "octa-verdict"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def octa_verdict_create(self, safe=False):
@@ -2865,8 +2907,10 @@ class Exo:
         return self
 
     def backoff_strategy_length(self):
-        l = len(self.stackset.stacks["backoff-strategy"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "backoff-strategy"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def backoff_strategy_create(self,
@@ -2893,8 +2937,10 @@ class Exo:
         return self
 
     def db_error_length(self):
-        l = len(self.stackset.stacks["db-error"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "db-error"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def db_error_create(self, e=""):
@@ -2914,8 +2960,10 @@ class Exo:
         return self
 
     def blockchain_error_length(self):
-        l = len(self.stackset.stacks["blockchain-error"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "blockchain-error"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def blockchain_error_create(self, e=""):
@@ -2935,8 +2983,10 @@ class Exo:
         return self
 
     def octahedron_error_length(self):
-        l = len(self.stackset.stacks["octahedron-error"])
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "octahedron-error"))
         self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def octahedron_error_create(self, e=""):
@@ -2956,13 +3006,15 @@ class Exo:
         return self
 
     def input_error_length(self):
+        self.stackset.set_changeable(["number"])
         l = len(dict_get(self.stackset.stacks, "input-error"))
+        self.stackset.push("number", l)
+        self.stackset.reset_access()
         return self
 
     def input_error_create(self, e=""):
         self.stackset.set_changeable(["input-error"])
         ret = input_error(self, e)
-        ret._exo = exo
         dstack = self.stackset.stacks["input-error"]
         dstack.append(ret)
         self.stackset.reset_access()
@@ -3140,6 +3192,61 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def number_eq(self):
+        exo = self
+        self.stackset.set_readable(["number"])
+        self.stackset.set_changeable(["number", "boolean"])
+        n1 = self.stackset.pop("number")
+        n2 = self.stackset.pop("number")
+        b = n1 >= n2
+        self.stackset.push("boolean", b)
+        self.stackset.reset_access()
+        return self
+
+    def number_gteq(self):
+        exo = self
+        self.stackset.set_readable(["number"])
+        self.stackset.set_changeable(["number", "boolean"])
+        n1 = self.stackset.pop("number")
+        n2 = self.stackset.pop("number")
+        b = n1 >= n2
+        self.stackset.push("boolean", b)
+        self.stackset.reset_access()
+        return self
+
+    def number_lteq(self):
+        exo = self
+        self.stackset.set_readable(["number"])
+        self.stackset.set_changeable(["number", "boolean"])
+        n1 = self.stackset.pop("number")
+        n2 = self.stackset.pop("number")
+        b = n1 <= n2
+        self.stackset.push("boolean", b)
+        self.stackset.reset_access()
+        return self
+
+    def number_gt(self):
+        exo = self
+        self.stackset.set_readable(["number"])
+        self.stackset.set_changeable(["number", "boolean"])
+        n1 = self.stackset.pop("number")
+        n2 = self.stackset.pop("number")
+        b = n1 > n2
+        self.stackset.push("boolean", b)
+        self.stackset.reset_access()
+        return self
+
+    def number_lt(self):
+        exo = self
+        self.stackset.set_readable(["number"])
+        self.stackset.set_changeable(["number", "boolean"])
+        n1 = self.stackset.pop("number")
+        n2 = self.stackset.pop("number")
+        b = n1 < n2
+        self.stackset.push("boolean", b)
+        self.stackset.reset_access()
+        return self
+
     def state_is(self):
         exo = self
         self.stackset.set_readable(["state"])
@@ -3280,7 +3387,8 @@ class Exo:
 
     def data_load(self):
         exo = self
-        self.stackset.set_readable(["context", "db-load-query"])
+        self.stackset.set_readable(
+            ["galactus-account", "context", "db-load-query"])
         self.stackset.set_changeable(
             ["db-error", "site", "leaderboard", "galactus-account"])
         assert self.stackset.stack_len("db-load-query") > 0
@@ -3327,8 +3435,22 @@ class Exo:
                     rows = conn.execute(q)
                     row = rows.first()
                     if not row == None:
-                        self.endo.update_event("galactus-account-can-logout",
-                                               None)
+                        key = row[0]
+                        username = row[1]
+                        ga = self.stackset.peek("galactus-account")
+                        lastreq = ga.last_request
+                        exo.galactus_account_create(
+                            salted_password='placeholder',
+                            api_key=key,
+                            username=username,
+                            last_request=lastreq)
+                        if username == ga.username:
+                            self.endo.update_event(
+                                "galactus-account-can-logout", None)
+                        elif not username == ga.username:
+                            self.endo.update_event(
+                                "galactus-account-cannot-logout", None)
+
                     elif row == None:
                         self.endo.update_event(
                             "galactus-account-cannot-logout", None)
@@ -3370,25 +3492,25 @@ class Exo:
 
                         self.endo.update_event("stakeable-exists", None)
 
-        except exc.ArgumentError as e:
-            # Non Retryable
-            assert False
-
-        except exc.CompileError as e:
-            # Non Retryable
-            assert False
-
         except exc.DisconnectionError as e:
             # Retryable
-            assert False
+            self.endo.update_event("galactus-load-error", None)
 
         except exc.TimeoutError as e:
             # Retryable
-            assert False
+            self.endo.update_event("galactus-load-error", None)
 
-        except exc.SqlAlchemyError:
+        except exc.ArgumentError as e:
             # Non Retryable
-            assert False
+            self.endo.update_event("backoff-period", None)
+
+        except exc.CompileError as e:
+            # Non Retryable
+            self.endo.update_event("backoff-period", None)
+
+        except exc.SQLAlchemyError:
+            # Non Retryable
+            self.endo.update_event("backoff-period", None)
 
         self.stackset.reset_access()
         return self
@@ -3407,25 +3529,25 @@ class Exo:
 
             self.endo.update_event("galactus-stored", None)
 
-        except exc.ArgumentError as e:
-            # Non Retryable
-            assert False
-
-        except exc.CompileError as e:
-            # Non Retryable
-            assert False
-
         except exc.DisconnectionError as e:
             # Retryable
-            assert False
+            self.endo.update_event("galactus-store-error", None)
 
         except exc.TimeoutError as e:
             # Retryable
-            assert False
+            self.endo.update_event("galactus-store-error", None)
+
+        except exc.ArgumentError as e:
+            # Non Retryable
+            self.endo.update_event("backoff-period", None)
+
+        except exc.CompileError as e:
+            # Non Retryable
+            self.endo.update_event("backoff-period", None)
 
         except exc.SQLAlchemyError:
             # Non Retryable
-            assert False
+            self.endo.update_event("backoff-period", None)
 
         self.stackset.reset_access()
         return self
@@ -3495,7 +3617,8 @@ class Exo:
         self.stackset.set_changeable(["db-load-query"])
         ga = self.stackset.peek("galactus-account")
         gak = ga.api_key
-        q = sql.select(galactus_account_table.c.api_key)
+        q = sql.select(galactus_account_table.c.api_key,
+                       galactus_account_table.c.username)
         q = q.where(galactus_account_table.c.api_key == gak)
         self.db_load_query_create(q=q)
         self.stackset.reset_access()
@@ -3951,8 +4074,7 @@ class Exo:
             # Should return the API Key
             if s == 201:
                 b = (b and not bod == None)
-                keys = response_body_keys(bod)
-                b = key_response_sane(keys, bod)
+                b = (b and key_response_sane(bod))
             elif s == 500:
                 # Should return error-list
                 # We handle form-validation at fapi-layer, but here we validate conflicts
@@ -3964,8 +4086,7 @@ class Exo:
             # Should return public key
             if s == 200:
                 b = (b and not bod == None)
-                keys = response_body_keys(bod)
-                b = key_response_sane(keys, bod)
+                b = (b and key_response_sane(bod))
                 b = (b and bod["key"] == pub_key)
             elif s == 500:
                 # Should return error-list
@@ -3978,11 +4099,11 @@ class Exo:
             # Should return API key and email and username
             if (s == 200 or s == 201):
                 b = (b and not bod == None)
-                keys = response_body_keys(bod)
-                b = login_response_sane(keys, bod)
+                b = (b and login_response_sane(bod))
             elif s == 401:
                 # Bad credentials
-                assert False
+                b = (b and not bod == None)
+                b = (b and pub_key_response_sane(bod))
             else:
                 assert False
 
@@ -3990,12 +4111,11 @@ class Exo:
             # Should return public key
             if (s == 200 or s == 201):
                 b = (b and not bod == None)
-                keys = response_body_keys(bod)
-                b = key_response_sane(keys, bod)
-                b = (b and bod["key"] == pub_key)
+                b = (b and pub_key_response_sane(bod))
             elif s == 401:
                 # No such key
-                assert False
+                b = (b and not bod == None)
+                b = (b and pub_key_response_sane(bod))
             else:
                 assert False
 
@@ -4051,7 +4171,7 @@ class Exo:
                     # Account was not found
                     res.body = {"key": pub_key}
                 elif (res.status == 201 or res.status == 200):
-                    # TODO password matches, return api-key
+                    # Account found, return pub-key
                     res.body = {"key": pub_key}
                     res.status = 200
 
@@ -4118,7 +4238,8 @@ def http_user_create(user_reg: UserRegistration) -> ApiKey:
     password = user_reg.password
     exo.galactus_account_create(username=username,
                                 unsalted_password=password,
-                                email=email)
+                                email=email,
+                                api_key=pub_key)
     endo.send("public-galactus-account-create")
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
@@ -4133,15 +4254,36 @@ def http_user_delete(user_reg: UserDeletion) -> ApiKey:
 
 
 @app.post("/user-login")
-def http_user_login(user_reg: UserLogin) -> UserCreds:
-    assert False
+def http_user_login(user_li: UserLogin) -> UserCreds:
+    username = user_li.username
+    email = user_li.email
+    password = user_li.password
+    exo.galactus_account_create(username=username,
+                                api_key=pub_key,
+                                unsalted_password=password)
+    endo.send("public-galactus-account-login")
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    new_key = dict_get(rsp.body, "key")
+    email = dict_get(rsp.body, "email")
+    username = dict_get(rsp.body, "username")
+    response = UserCreds(username=username, email=email, key=new_key)
+    return response
 
 
 @app.post("/user-logout")
-def http_user_logout(user_reg: UserLogout) -> ApiKey:
-    assert False
+def http_user_logout(user_lo: UserLogout) -> ApiKey:
+    username = user_lo.username
+    key = user_lo.key
+    exo.galactus_account_create(username=username,
+                                api_key=key,
+                                salted_password='placeholder')
+    endo.send("public-galactus-account-logout")
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    response = ApiKey(key=pub_key)
+    return response
 
 
 # Simple Test
-#run_program(exo)
 # TODO define verb wallet_as_load
