@@ -82,10 +82,40 @@ We use the `hypothesis` framework to generate test data and to drive event/data-
 into the state-machine. If any assertion gets triggered, hypothesis tries to create
 the smallest possible input-sequence that would trigger the assertion.
 
+
 ## Cool Features
 ### Tests / Fuzzing
 ### Heatmaps
 ### Stochastification
+
+## Deployment
+
+Galactus is meant to be run on NixOS with **one** worker-process. We increase the number
+of workers in the future, and may want to use the `gunicorn` backend to allow for live,
+zero-downtime upgrades. Using a single worker is fine, and reduces the number of error-sources
+significantly -- Node.js apps usually run in a single thread/worker, it is in fact their whole
+selling point. Also much confusion results from -- based on various online readings -- running
+FastAPI with multiple workers without really understanding what that means. In any case,
+we start with 1 and grow to multiple workers later.
+
+We also use SQLite for development and testing -- which is another reason to use 1 worker --
+but we plan to deploy on Postgres in production (we will have to update the configuration.nix file for this).
+
+To run the code, you have to clone this repo into a directory and run the following:
+
+```
+nix-shell shell.nix
+uvicorn core:app --host  $YOUR_IP --port 80 --workers 1
+```
+
+If you do not specify an IP, it will run on 127.0.0.1 and will only be visible to localhost-clients.
+If you want a different port, you have to specify it -- the uvicorn default is 8000. And the workers
+should never be increased unless we have tested and verified that more workers is stable. (So far,
+the only thing that changes with multiple workers and a shared DB, is that if 2 workers try to create
+the same user-account they will race, and 1 will create it successfully while the other will fail to
+do so in a non-retryable way because of a primary-key-conflict -- a single worker-prevents this server-side,
+but users can still perceive a race client-side, if the client show the username as being available and **another**
+client completes registration before the current one does).
 
 # Credits/Acknowledgements/Related-Work
 
