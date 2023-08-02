@@ -11,6 +11,7 @@ from argon2 import PasswordHasher
 import fastapi as fapi
 from pydantic import BaseModel
 from uuid import uuid4
+import logging
 # Global hasher object
 ph = PasswordHasher()
 
@@ -1442,20 +1443,32 @@ def post_verify():
 
 
 class Endo:
-    stackset = StackSet()
     exo = {}
-    state = "begin-here"
     wait_states = ["ready", "panic"]
-    event = None
-    ev_up = 0
     transitions = {}
     transition_code = {}
     valid_events = {}
     eventsets = {}
     rev_eventsets = {}
     heatmap = {}
+    state = "begin-here"
+    event = None
+    ev_up = 0
+    stackset = StackSet()
     ticker = 0
     ticker_max = 0
+
+    def reset_machine(self):
+        # We reset everything to the defaults except the durable data like transitions, valid-events, heatmaps, etc
+        self.state = "begin-here"
+        self.event = None
+        self.ev_up = 0
+        self.stackset = StackSet()
+        self.ticker = 0
+        self.ticker_max = 0
+        self.stackset.set_changeable(["state"])
+        self.stackset.push("state", self.state)
+        self.stackset.reset_access()
 
     def update_event(self, event, eventset):
         self.stackset.set_changeable(["event", "prev-event", "eventset"])
@@ -4232,7 +4245,8 @@ app = fapi.FastAPI()
 
 
 @app.post("/user-create")
-def http_user_create(user_reg: UserRegistration) -> ApiKey:
+def http_user_create(user_reg: UserRegistration,
+                     res_bptr: fapi.Response) -> ApiKey:
     username = user_reg.username
     email = user_reg.email
     password = user_reg.password
@@ -4240,10 +4254,21 @@ def http_user_create(user_reg: UserRegistration) -> ApiKey:
                                 unsalted_password=password,
                                 email=email,
                                 api_key=pub_key)
-    endo.send("public-galactus-account-create")
+    try:
+        endo.send("public-galactus-account-create")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
     new_key = dict_get(rsp.body, "key")
+    res_bptr.status_code = rsp.status
     response = ApiKey(key=new_key)
     return response
 
@@ -4254,16 +4279,27 @@ def http_user_delete(user_reg: UserDeletion) -> ApiKey:
 
 
 @app.post("/user-login")
-def http_user_login(user_li: UserLogin) -> UserCreds:
+def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     username = user_li.username
     email = user_li.email
     password = user_li.password
     exo.galactus_account_create(username=username,
                                 api_key=pub_key,
                                 unsalted_password=password)
-    endo.send("public-galactus-account-login")
+    try:
+        endo.send("public-galactus-account-login")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
+    res_bptr.status_code = rsp.status
     new_key = dict_get(rsp.body, "key")
     email = dict_get(rsp.body, "email")
     username = dict_get(rsp.body, "username")
@@ -4272,15 +4308,26 @@ def http_user_login(user_li: UserLogin) -> UserCreds:
 
 
 @app.post("/user-logout")
-def http_user_logout(user_lo: UserLogout) -> ApiKey:
+def http_user_logout(user_lo: UserLogout, res_bptr: fapi.Response) -> ApiKey:
     username = user_lo.username
     key = user_lo.key
     exo.galactus_account_create(username=username,
                                 api_key=key,
                                 salted_password='placeholder')
-    endo.send("public-galactus-account-logout")
+    try:
+        endo.send("public-galactus-account-logout")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
+    res_bptr.status_code = rsp.status
     response = ApiKey(key=pub_key)
     return response
 
