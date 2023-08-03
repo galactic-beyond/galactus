@@ -1640,7 +1640,7 @@ class Endo:
         eventset = None
         if not eventsets == None:
             if len(eventsets) == 1:
-                eventset = eventset[0]
+                eventset = eventsets[0]
             elif len(eventsets) > 1:
                 # TODO handle multiple eventset membership and any ambiguity
                 assert False
@@ -1734,8 +1734,10 @@ class Endo:
             "public-stakeable-get", "public-stakeable-stake",
             "public-leaderboard-get"
         ])
-        self.add_many_to_event_set(
-            "@conflict", ["galactus-account-exists", "wallet-in-use"])
+        self.add_many_to_event_set("@conflict", [
+            "galactus-account-exists", "galactus-account-not-destroyable",
+            "wallet-in-use"
+        ])
         self.add_many_to_event_set("@public-mutate", [
             "public-galactus-account-create",
             "public-galactus-account-destroy", "public-galactus-account-login",
@@ -1792,7 +1794,7 @@ class Endo:
                  data_load())
             elif br_event == "public-galactus-account-destroy":
                 (exo.contextualize().galactus_account_last_req().
-                 galactus_account_key_as_load().data_load())
+                 galactus_account_creds_as_load().data_load())
             elif br_event == "public-galactus-account-login":
                 (exo.contextualize().galactus_account_last_req().
                  galactus_account_creds_as_load().data_load())
@@ -1901,8 +1903,11 @@ class Endo:
 
         def site_unlock_try__stakeable_pending__site_reachable(endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.stakeable_pend())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -1930,8 +1935,11 @@ class Endo:
 
         def stakeable_shelved__galactus_store_try__set_always(endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.stakeable_as_store().data_store())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -1959,8 +1967,11 @@ class Endo:
 
         def site_unlock_try__stakeable_shelved__site_unreachable(endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.stakeable_shelve())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -2245,9 +2256,14 @@ class Endo:
             br_event = self.stackset.peek("event")
             self.stackset.reset_access()
             if br_event == "galactus-account-exists":
-                (exo.load_query_discard().respond().decontextualize())
+                (exo.load_query_discard().response_create(
+                    status=500).respond().stack_gc().decontextualize())
+            elif br_event == "galactus-account-not-destroyable":
+                (exo.load_query_discard().response_create(
+                    status=404).respond().stack_gc().decontextualize())
             elif br_event == "wallet-in-use":
-                (exo.load_query_discard().respond().decontextualize())
+                (exo.load_query_discard().response_create(
+                    status=500).respond().stack_gc().decontextualize())
             else:
                 assert False
 
@@ -2312,8 +2328,13 @@ class Endo:
         def galactus_load_retry__galactus_store_try__galactus_account_non_existent(
                 endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.load_query_discard().galactus_account_hashify_password().
+             galactus_account_new_key().galactus_account_as_store().data_store(
+             ))
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -2322,6 +2343,89 @@ class Endo:
             "galactus-account-non-existent",
             galactus_load_retry__galactus_store_try__galactus_account_non_existent
         )
+
+        endo.add_transition("galactus-load-try", "credential-check",
+                            "galactus-account-destroyable")
+
+        def galactus_load_try__credential_check__galactus_account_destroyable(
+                endo):
+            pre_verify()
+            endo.event = None
+            (exo.load_query_discard().galactus_account_verify_password().
+             galactus_account_empty().is_not().event_create(
+                 name="galactus-account-allow-destroy").event_create(
+                     name="galactus-account-disallow-destroy").bool_eventify())
+            if endo.event == None:
+                endo.update_event(None, None)
+
+            post_verify()
+            return
+
+        dict_2put(
+            endo.transition_code, "galactus-load-try",
+            "galactus-account-destroyable",
+            galactus_load_try__credential_check__galactus_account_destroyable)
+
+        endo.add_transition("galactus-load-retry", "credential-check",
+                            "galactus-account-destroyable")
+
+        def galactus_load_retry__credential_check__galactus_account_destroyable(
+                endo):
+            pre_verify()
+            endo.event = None
+            (exo.load_query_discard().galactus_account_verify_password().
+             galactus_account_empty().is_not().event_create(
+                 name="galactus-account-allow-destroy").event_create(
+                     name="galactus-account-disallow-destroy").bool_eventify())
+            if endo.event == None:
+                endo.update_event(None, None)
+
+            post_verify()
+            return
+
+        dict_2put(
+            endo.transition_code, "galactus-load-retry",
+            "galactus-account-destroyable",
+            galactus_load_retry__credential_check__galactus_account_destroyable
+        )
+
+        endo.add_transition("credential-check", "galactus-store-try",
+                            "galactus-account-allow-destroy")
+
+        def credential_check__galactus_store_try__galactus_account_allow_destroy(
+                endo):
+            pre_verify()
+            endo.event = None
+            (exo.galactus_account_as_destroy_by_key().data_store())
+            if endo.event == None:
+                endo.update_event(None, None)
+
+            post_verify()
+            return
+
+        dict_2put(
+            endo.transition_code, "credential-check",
+            "galactus-account-allow-destroy",
+            credential_check__galactus_store_try__galactus_account_allow_destroy
+        )
+
+        endo.add_transition("credential-check", "ready",
+                            "galactus-account-disallow-destroy")
+
+        def credential_check__ready__galactus_account_disallow_destroy(endo):
+            pre_verify()
+            endo.event = None
+            (exo.response_create(
+                status=401).respond().stack_gc().decontextualize())
+            if endo.event == None:
+                endo.update_event(None, None)
+
+            post_verify()
+            return
+
+        dict_2put(endo.transition_code, "credential-check",
+                  "galactus-account-disallow-destroy",
+                  credential_check__ready__galactus_account_disallow_destroy)
 
         endo.add_transition("galactus-load-try", "galactus-store-try",
                             "galactus-account-can-logout")
@@ -2349,8 +2453,12 @@ class Endo:
         def galactus_load_retry__galactus_store_try__galactus_account_can_logout(
                 endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.load_query_discard().galactus_account_new_key().
+             galactus_account_new_key_as_store().data_store())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -2384,8 +2492,13 @@ class Endo:
 
         def galactus_load_retry__ready__galactus_account_can_login(endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.load_query_discard().galactus_account_verify_password().
+             response_create(
+                 status=200).respond().stack_gc().decontextualize())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -2416,8 +2529,12 @@ class Endo:
 
         def galactus_load_retry__ready__galactus_account_cannot_logout(endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.load_query_discard().response_create(
+                status=401).respond().stack_gc().decontextualize())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -2448,8 +2565,12 @@ class Endo:
 
         def galactus_load_retry__ready__galactus_account_cannot_login(endo):
             pre_verify()
-            # TODO
-            assert False
+            endo.event = None
+            (exo.load_query_discard().response_create(
+                status=401).respond().stack_gc().decontextualize())
+            if endo.event == None:
+                endo.update_event(None, None)
+
             post_verify()
             return
 
@@ -3422,7 +3543,25 @@ class Exo:
                                                None)
 
                 elif ev == "public-galactus-account-destroy":
-                    assert False
+                    rows = conn.execute(q)
+                    row = rows.first()
+                    if not row == None:
+                        phash = row[0]
+                        key = row[1]
+                        key_exp = row[2]
+                        username = row[3]
+                        email = row[4]
+                        exo.galactus_account_create(salted_password=phash,
+                                                    api_key=key,
+                                                    api_key_expiration=key_exp,
+                                                    username=username,
+                                                    email=email)
+                        self.endo.update_event("galactus-account-destroyable",
+                                               None)
+                    elif row == None:
+                        self.endo.update_event(
+                            "galactus-account-not-destroyable", None)
+
                 elif ev == "public-galactus-account-login":
                     rows = conn.execute(q)
                     row = rows.first()
@@ -3573,6 +3712,9 @@ class Exo:
         event = ctx.event
         if event == "public-galactus-account-create":
             self.stackset.pop("galactus-account")
+        elif event == "public-galactus-account-destroy":
+            self.stackset.pop("galactus-account")
+            self.stackset.pop("galactus-account")
         elif event == "public-galactus-account-logout":
             self.stackset.pop("galactus-account")
             self.stackset.pop("galactus-account")
@@ -3651,10 +3793,29 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def bool_eventify(self):
+        exo = self
+        self.stackset.set_readable([])
+        self.stackset.set_changeable(
+            ["next-event", "prev-event", "event", "boolean"])
+        # We emit event f_e if bool is false, and event t_e if bool is true, popping all 3
+        # This lets us compose non-event-emitting verbs in such a way that they can emit events without having to be rewritten to do so
+        # Such rewriting would result in code-duplication (because the non-event-emitting verb was needed for other reasons)
+        f_e = self.stackset.pop("event")
+        t_e = self.stackset.pop("event")
+        b = self.stackset.pop("boolean")
+        if b == True:
+            exo.endo.update_event(t_e, None)
+        elif b == False:
+            exo.endo.update_event(f_e, None)
+
+        self.stackset.reset_access()
+        return self
+
     def galactus_account_verify_password(self):
         exo = self
         self.stackset.set_readable(["galactus-account"])
-        self.stackset.set_changeable(["boolean", "galactus-account"])
+        self.stackset.set_changeable(["galactus-account"])
         ga_loaded = self.stackset.pop("galactus-account")
         ga_inputed = self.stackset.pop("galactus-account")
         ga_loaded.last_request = ga_inputed.last_request
@@ -3764,6 +3925,18 @@ class Exo:
                      salted_password=gasp,
                      api_key=gaak,
                      email=gaem)
+        exo.db_store_query_create(q=q)
+        self.stackset.reset_access()
+        return self
+
+    def galactus_account_as_destroy_by_key(self):
+        exo = self
+        self.stackset.set_readable(["galactus-account"])
+        self.stackset.set_changeable(["db-store-query"])
+        ga = self.stackset.peek("galactus-account")
+        gaak = ga.api_key
+        q = sql.delete(galactus_account_table)
+        q = q.where(galactus_account_table.c.api_key == gaak)
         exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
@@ -4097,7 +4270,7 @@ class Exo:
 
         elif ctx.event == "public-galactus-account-destroy":
             # Should return public key
-            if s == 200:
+            if (s == 200 or s == 201 or s == 404 or s == 401):
                 b = (b and not bod == None)
                 b = (b and key_response_sane(bod))
                 b = (b and bod["key"] == pub_key)
@@ -4154,6 +4327,21 @@ class Exo:
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
 
+        elif ctx.event == "public-galactus-account-destroy":
+            if res.status == 201:
+                res.body = {"key": pub_key}
+                # Override default status from the `commit-changes -> ready` transition
+                res.status = 200
+            elif res.status == 404:
+                # Maybe add message
+                # Are we giving away too much information by distinguishing 404 from 401?
+                res.body = {"key": pub_key}
+            elif res.status == 401:
+                # Maybe add message
+                res.body = {"key": pub_key}
+            else:
+                assert False
+
         elif ctx.event == "public-galactus-account-login":
             ga = self.stackset.peek("galactus-account")
             if ga == None:
@@ -4191,6 +4379,8 @@ class Exo:
         else:
             assert False
 
+        # Doing this triggers the response tests -- helps if accidentally bypass the above if-tree because of unhandled status-code
+        tmp = res.status
         self.stackset.reset_access()
         return self
 
@@ -4274,8 +4464,31 @@ def http_user_create(user_reg: UserRegistration,
 
 
 @app.post("/user-delete")
-def http_user_delete(user_reg: UserDeletion) -> ApiKey:
-    assert False
+def http_user_delete(user_reg: UserDeletion,
+                     res_bptr: fapi.Response) -> ApiKey:
+    username = user_reg.username
+    confirm = user_reg.confirm
+    password = user_reg.password
+    exo.galactus_account_create(username=username,
+                                unsalted_password=password,
+                                api_key=pub_key)
+    try:
+        endo.send("public-galactus-account-destroy")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    new_key = dict_get(rsp.body, "key")
+    res_bptr.status_code = rsp.status
+    response = ApiKey(key=new_key)
+    return response
 
 
 @app.post("/user-login")
