@@ -9,9 +9,11 @@ from hypothesis import given
 from operator import itemgetter
 from argon2 import PasswordHasher
 import fastapi as fapi
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from uuid import uuid4
 import logging
+import json
+from starlette.responses import JSONResponse
 # Global hasher object
 ph = PasswordHasher()
 
@@ -386,7 +388,9 @@ def is_member(elem, ls):
     return False
 
 
-class paging_control:
+# TODO we have to update __getattr__ to __getattribute__ because teh former only listens for unbound access
+# this is complicated by the fact that the latter causes infinite recursions during __init__. Once we fix that we can be done with this.
+class paging_control(object):
     _exo = None
     filt = ""
     page_num = 0
@@ -422,11 +426,14 @@ class paging_control:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class context:
+class context(object):
     _exo = None
     locked = False
     timestamp_end = datetime.datetime.now()
@@ -468,11 +475,14 @@ class context:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class response:
+class response(object):
     _exo = None
     body = None
     status = 200
@@ -506,11 +516,14 @@ class response:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class backoff_strategy:
+class backoff_strategy(object):
     _exo = None
     randomness = 0
     retries = 0
@@ -559,11 +572,14 @@ class backoff_strategy:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class db_load_query:
+class db_load_query(object):
     _exo = None
     q = None
 
@@ -594,11 +610,14 @@ class db_load_query:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class db_store_query:
+class db_store_query(object):
     _exo = None
     q = None
 
@@ -629,11 +648,14 @@ class db_store_query:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class db_error:
+class db_error(object):
     _exo = None
     e = ""
 
@@ -663,11 +685,14 @@ class db_error:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class blockchain_error:
+class blockchain_error(object):
     _exo = None
     e = ""
 
@@ -697,11 +722,14 @@ class blockchain_error:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class input_error:
+class input_error(object):
     _exo = None
     e = ""
 
@@ -731,11 +759,14 @@ class input_error:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class octahedron_error:
+class octahedron_error(object):
     _exo = None
     e = ""
 
@@ -765,11 +796,14 @@ class octahedron_error:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class ilock_policy:
+class ilock_policy(object):
     _exo = None
     max_stake = 0
     stake_yield = 0
@@ -810,11 +844,14 @@ class ilock_policy:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class octa_verdict:
+class octa_verdict(object):
     _exo = None
     safe = False
 
@@ -844,11 +881,14 @@ class octa_verdict:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class site:
+class site(object):
     _exo = None
     url = ""
     flags = 0
@@ -896,11 +936,14 @@ class site:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class allow_block_list_item:
+class allow_block_list_item(object):
     _exo = None
     block = False
     url = ""
@@ -941,11 +984,14 @@ class allow_block_list_item:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class deleted_galactus_account:
+class deleted_galactus_account(object):
     _exo = None
     deletion_date = datetime.datetime.now()
     registration_date = datetime.datetime.now()
@@ -985,11 +1031,14 @@ class deleted_galactus_account:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class galactus_account:
+class galactus_account(object):
     _exo = None
     locked = False
     api_key_expiration = datetime.datetime.now()
@@ -1098,11 +1147,14 @@ class galactus_account:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class leaderboard:
+class leaderboard(object):
     _exo = None
     dummy = 0
 
@@ -1132,11 +1184,14 @@ class leaderboard:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
-class reward_strategy:
+class reward_strategy(object):
     _exo = None
     dummy = 0
 
@@ -1162,8 +1217,11 @@ class reward_strategy:
         return
 
     def __getattr__(self, name):
-        self.__assert__()
-        return self.__dict__[f"{name}"]
+        assertname = "__assert__"
+        myassert = object.__getattribute__(self, f"{assertname}")
+        myassert()
+        r = object.__getattribute__(self, f"{name}")
+        return r
 
 
 class StackSet:
@@ -2257,7 +2315,7 @@ class Endo:
             self.stackset.reset_access()
             if br_event == "galactus-account-exists":
                 (exo.load_query_discard().response_create(
-                    status=500).respond().stack_gc().decontextualize())
+                    status=409).respond().stack_gc().decontextualize())
             elif br_event == "galactus-account-not-destroyable":
                 (exo.load_query_discard().response_create(
                     status=404).respond().stack_gc().decontextualize())
@@ -4240,7 +4298,7 @@ class Exo:
         r = self.stackset.peek("response")
         s = r.status
         # valid statuses -- 402 may be especially relevant for us
-        valid_status = [200, 201, 202, 401, 402, 404, 500, 501]
+        valid_status = [200, 201, 202, 401, 402, 404, 409, 500, 501]
         b = is_member(s, valid_status)
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
@@ -4261,7 +4319,7 @@ class Exo:
             if s == 201:
                 b = (b and not bod == None)
                 b = (b and key_response_sane(bod))
-            elif s == 500:
+            elif s == 409:
                 # Should return error-list
                 # We handle form-validation at fapi-layer, but here we validate conflicts
                 b = (b and not bod == None)
@@ -4326,6 +4384,8 @@ class Exo:
             if res.status == 201:
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
+            elif res.status == 409:
+                res.body = {"message": "account already exists"}
 
         elif ctx.event == "public-galactus-account-destroy":
             if res.status == 201:
@@ -4380,7 +4440,7 @@ class Exo:
             assert False
 
         # Doing this triggers the response tests -- helps if accidentally bypass the above if-tree because of unhandled status-code
-        tmp = res.status
+        res.status = res.status
         self.stackset.reset_access()
         return self
 
@@ -4389,6 +4449,24 @@ exo = Exo()
 
 
 # FAPI app
+def validate_password_common(password):
+    l = len(password)
+    # TODO validate character set
+    if l < 8:
+        raise ValueError("password too short")
+
+    return password
+
+
+def validate_username_common(username):
+    l = len(username)
+    # TODO validate character set
+    if l < 6:
+        raise ValueError("username too short")
+
+    return username
+
+
 class UserRegistration(BaseModel):
     address: str
     email: str
@@ -4398,6 +4476,14 @@ class UserRegistration(BaseModel):
     terms_of_service: bool
     united_states: bool
     username: str
+
+    @validator("password")
+    def validate_password(cls, password):
+        return validate_password_common(password)
+
+    @validator("username")
+    def validate_username(cls, username):
+        return validate_username_common(username)
 
 
 class ApiKey(BaseModel):
@@ -4415,16 +4501,36 @@ class UserDeletion(BaseModel):
     confirm: bool
     username: str
 
+    @validator("password")
+    def validate_password(cls, password):
+        return validate_password_common(password)
+
+    @validator("username")
+    def validate_username(cls, username):
+        return validate_username_common(username)
+
 
 class UserLogin(BaseModel):
     password: str
     email: str
     username: str
 
+    @validator("password")
+    def validate_password(cls, password):
+        return validate_password_common(password)
+
+    @validator("username")
+    def validate_username(cls, username):
+        return validate_username_common(username)
+
 
 class UserLogout(BaseModel):
     key: str
     username: str
+
+    @validator("username")
+    def validate_username(cls, username):
+        return validate_username_common(username)
 
 
 endo = Endo()
@@ -4434,7 +4540,24 @@ endo.send("ignite")
 app = fapi.FastAPI()
 
 
-@app.post("/user-create")
+@app.exception_handler(fapi.exceptions.RequestValidationError)
+@app.exception_handler(fapi.exceptions.ValidationError)
+def validation_exception_handler(req, exc):
+    exc_json = json.loads(exc.json())
+    res = {"message": [], "data": None}
+    res_msg = res["message"]
+    for e in exc_json:
+        loc_ls = e["loc"]
+        msg = (loc_ls[-1] + f" {e['msg']}")
+        res_msg.append(msg)
+
+    return JSONResponse(res, status_code=422)
+
+
+alt_create_responses = {"409": {"message": "account already exists"}}
+
+
+@app.post("/user-create", responses=alt_create_responses)
 def http_user_create(user_reg: UserRegistration,
                      res_bptr: fapi.Response) -> ApiKey:
     username = user_reg.username
@@ -4457,13 +4580,29 @@ def http_user_create(user_reg: UserRegistration,
 
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
-    new_key = dict_get(rsp.body, "key")
+    if rsp.status == 201:
+        new_key = dict_get(rsp.body, "key")
+        response = ApiKey(key=new_key)
+    elif rsp.status == 409:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False
+
     res_bptr.status_code = rsp.status
-    response = ApiKey(key=new_key)
     return response
 
 
-@app.post("/user-delete")
+alt_delete_responses = {
+    "401": {
+        "message": "bad credentials"
+    },
+    "404": {
+        "message": "no such account"
+    }
+}
+
+
+@app.post("/user-delete", responses=alt_delete_responses)
 def http_user_delete(user_reg: UserDeletion,
                      res_bptr: fapi.Response) -> ApiKey:
     username = user_reg.username
@@ -4491,7 +4630,10 @@ def http_user_delete(user_reg: UserDeletion,
     return response
 
 
-@app.post("/user-login")
+alt_login_responses = {"401": {"message": "bad credentials"}}
+
+
+@app.post("/user-login", responses=alt_login_responses)
 def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     username = user_li.username
     email = user_li.email
@@ -4520,7 +4662,10 @@ def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     return response
 
 
-@app.post("/user-logout")
+alt_logout_responses = {"401": {"message": "bad credentials"}}
+
+
+@app.post("/user-logout", responses=alt_logout_responses)
 def http_user_logout(user_lo: UserLogout, res_bptr: fapi.Response) -> ApiKey:
     username = user_lo.username
     key = user_lo.key
