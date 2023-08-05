@@ -403,6 +403,7 @@ class paging_control(object):
         self.page_num = page_num
         self.quantity = quantity
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -425,13 +426,6 @@ class paging_control(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class context(object):
     _exo = None
@@ -453,6 +447,7 @@ class context(object):
         self.timestamp_start = timestamp_start
         self.event = event
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -474,25 +469,21 @@ class context(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class response(object):
     _exo = None
+    locked = False
     body = None
     status = 200
 
-    def __init__(self, _exo, body=None, status=200):
+    def __init__(self, _exo, locked=False, body=None, status=200):
         self.__dict__["__constructed"] = False
         self._exo = _exo
+        self.locked = locked
         self.body = body
         self.status = status
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -503,8 +494,10 @@ class response(object):
         r_snap = exo.stackset.readable
         c_snap = exo.stackset.changeable
         exo.stackset.push_unsafe("response", self)
-        (exo.valid_response_body().verify())
-        (exo.valid_response_status().verify())
+        (exo.response_is_locked().valid_response_body().andify().
+         guarded_verify())
+        (exo.response_is_locked().valid_response_status().andify().
+         guarded_verify())
         exo.stackset.pop_unsafe("response")
         exo.stackset.readable = r_snap
         exo.stackset.changeable = c_snap
@@ -514,13 +507,6 @@ class response(object):
         self.__dict__[f"{name}"] = value
         self.__assert__()
         return
-
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
 
 
 class backoff_strategy(object):
@@ -549,6 +535,7 @@ class backoff_strategy(object):
         self.delay_ms = delay_ms
         self.min_delay_ms = min_delay_ms
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -571,13 +558,6 @@ class backoff_strategy(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class db_load_query(object):
     _exo = None
@@ -588,6 +568,7 @@ class db_load_query(object):
         self._exo = _exo
         self.q = q
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -609,13 +590,6 @@ class db_load_query(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class db_store_query(object):
     _exo = None
@@ -626,6 +600,7 @@ class db_store_query(object):
         self._exo = _exo
         self.q = q
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -647,13 +622,6 @@ class db_store_query(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class db_error(object):
     _exo = None
@@ -664,6 +632,7 @@ class db_error(object):
         self._exo = _exo
         self.e = e
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -684,13 +653,6 @@ class db_error(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class blockchain_error(object):
     _exo = None
@@ -701,6 +663,7 @@ class blockchain_error(object):
         self._exo = _exo
         self.e = e
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -721,13 +684,6 @@ class blockchain_error(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class input_error(object):
     _exo = None
@@ -738,6 +694,7 @@ class input_error(object):
         self._exo = _exo
         self.e = e
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -758,13 +715,6 @@ class input_error(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class octahedron_error(object):
     _exo = None
@@ -775,6 +725,7 @@ class octahedron_error(object):
         self._exo = _exo
         self.e = e
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -794,13 +745,6 @@ class octahedron_error(object):
         self.__dict__[f"{name}"] = value
         self.__assert__()
         return
-
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
 
 
 class ilock_policy(object):
@@ -823,6 +767,7 @@ class ilock_policy(object):
         self.lookup_fee = lookup_fee
         self.user_fee = user_fee
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -843,13 +788,6 @@ class ilock_policy(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class octa_verdict(object):
     _exo = None
@@ -860,6 +798,7 @@ class octa_verdict(object):
         self._exo = _exo
         self.safe = safe
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -879,13 +818,6 @@ class octa_verdict(object):
         self.__dict__[f"{name}"] = value
         self.__assert__()
         return
-
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
 
 
 class site(object):
@@ -914,6 +846,7 @@ class site(object):
         self.stake_state = stake_state
         self.classification = classification
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -934,13 +867,6 @@ class site(object):
         self.__dict__[f"{name}"] = value
         self.__assert__()
         return
-
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
 
 
 class allow_block_list_item(object):
@@ -963,6 +889,7 @@ class allow_block_list_item(object):
         self.user_registration_date = user_registration_date
         self.username = username
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -983,13 +910,6 @@ class allow_block_list_item(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class deleted_galactus_account(object):
     _exo = None
@@ -1008,6 +928,7 @@ class deleted_galactus_account(object):
         self.registration_date = registration_date
         self.username = username
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -1029,13 +950,6 @@ class deleted_galactus_account(object):
         self.__dict__[f"{name}"] = value
         self.__assert__()
         return
-
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
 
 
 class galactus_account(object):
@@ -1121,6 +1035,7 @@ class galactus_account(object):
         self.email = email
         self.username = username
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -1146,13 +1061,6 @@ class galactus_account(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class leaderboard(object):
     _exo = None
@@ -1163,6 +1071,7 @@ class leaderboard(object):
         self._exo = _exo
         self.dummy = dummy
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -1183,13 +1092,6 @@ class leaderboard(object):
         self.__assert__()
         return
 
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
-
 
 class reward_strategy(object):
     _exo = None
@@ -1200,6 +1102,7 @@ class reward_strategy(object):
         self._exo = _exo
         self.dummy = dummy
         self.__dict__["__constructed"] = True
+        self.__assert__()
         return
 
     def __assert__(self):
@@ -1215,13 +1118,6 @@ class reward_strategy(object):
         self.__dict__[f"{name}"] = value
         self.__assert__()
         return
-
-    def __getattr__(self, name):
-        assertname = "__assert__"
-        myassert = object.__getattribute__(self, f"{assertname}")
-        myassert()
-        r = object.__getattribute__(self, f"{name}")
-        return r
 
 
 class StackSet:
@@ -1467,7 +1363,7 @@ def post_verify():
         # respond-on-ready
         (exo.state_create(name="ready").next_state_is().state_create(
             name="begin-here").state_is().is_not().andify().response_empty().
-         is_not().guarded_verify())
+         is_not().response_is_locked().andify().guarded_verify())
         # galactus-account-last-req
         (exo.state_create(name="ready").prev_state_is().galactus_account_empty(
         ).is_not().andify().galactus_account_has_last_req().guarded_verify())
@@ -3059,9 +2955,9 @@ class Exo:
         self.stackset.reset_access()
         return self
 
-    def response_create(self, body=None, status=200):
+    def response_create(self, locked=False, body=None, status=200):
         self.stackset.set_changeable(["response"])
-        ret = response(self, body, status)
+        ret = response(self, locked, body, status)
         dstack = self.stackset.stacks["response"]
         dstack.append(ret)
         self.stackset.reset_access()
@@ -4056,6 +3952,20 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def response_is_locked(self):
+        exo = self
+        self.stackset.set_readable(["response"])
+        self.stackset.set_changeable(["boolean"])
+        r = self.stackset.peek("response")
+        if r == None:
+            self.stackset.push("boolean", False)
+        else:
+            rl = r.locked
+            self.stackset.push("boolean", rl)
+
+        self.stackset.reset_access()
+        return self
+
     def ilock_policy_as_load(self):
         exo = self
         self.stackset.set_readable(["ilock-policy"])
@@ -4440,7 +4350,7 @@ class Exo:
             assert False
 
         # Doing this triggers the response tests -- helps if accidentally bypass the above if-tree because of unhandled status-code
-        res.status = res.status
+        res.locked = True
         self.stackset.reset_access()
         return self
 
