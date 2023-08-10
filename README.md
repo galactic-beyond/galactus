@@ -4,7 +4,7 @@
 
 Galactus is the cortex of the Interlock Network. It coordinates blockchain-activities
 (like setting staking yields and limits) and browser-activities (like communicating
-with the (ThreatSlayer)[https://chrome.google.com/webstore/detail/threatslayer-security-phi/mgcmocglffknmbhhfjihifeldhghihpj] extension to protect users, and to reward them for their browsing
+with the [ThreatSlayer](https://chrome.google.com/webstore/detail/threatslayer-security-phi/mgcmocglffknmbhhfjihifeldhghihpj) extension to protect users, and to reward them for their browsing
 activities). There is also some book-keeping involved, like memorizing user-configs.
 
 Given its central role, it is designed to be robust from the very beginning. We have
