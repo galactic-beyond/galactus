@@ -1,10 +1,5 @@
 # GALACTUS
 
-**This software is not yet production-ready and is pre-alpha (it has been made available to
-placate the annoyingly yet adorably impatient among us). Questions and comments
-will be ignored, and the askers/commenters will be shamed and humiliated until
-the official stable release.**
-
 ## Overview
 
 Galactus is the cortex of the Interlock Network. It coordinates blockchain-activities
@@ -15,7 +10,7 @@ activities). There is also some book-keeping involved, like memorizing user-conf
 Given its central role, it is designed to be robust from the very beginning. We have
 organized the code as a state-machine, with explicit states and events, and assertions
 that validate the consistency of the program at the beginning and end of every transition,
-as well as on every read and write to any core, non-primitive object (i.e. galactus accounts).
+as well as on every write to any core, non-primitive object (i.e. galactus accounts).
 The idea is to prevent mistakes ahead of time, instead of desperately trying to find and
 fix the mistakes while the program actively causes damage (or -- in the best case -- refuses
 to run).
@@ -78,13 +73,55 @@ distinction in the verb itself -- this allows us to easily create stochastified
 mocks, inside the verbs, to exercise all transitions without having to stress
 over the semantic distinction between an event and a condition.
 
+Another deviation from Harel is that we do not have nestable states, we instead
+find that in-verb branching and event-branching transitions (i.e. those that
+are activated by event-sets) achieve a similar effect, while keeping the
+topology simple (i.e. a transition from `load` to `respond` is semantically the
+same concept regardless of what is being loaded and what kind of response is
+created -- those details are best revealed by the code, since trying to infer
+them from event-names is basically guesswork).
+
+Overall, these abstractions give us an infinite number of ways to organize and
+express the same computation, letting the developers choose whether the
+computation is best expressed (and easiest to understand) on the level of
+states and transitions, transition-branches, verb compositions, or murky
+verb-internals. However, expressiveness is often at odds with tractability,
+and so we provide facilities for specifying correctness-truths about the relations
+between all states, events, stacks, and classes which should prevent developers
+from over-expressing themselves into a dark corner of tangled logical
+convolutions.
+
 We use the `hypothesis` framework to generate test data and to drive event/data-inputs
 into the state-machine. If any assertion gets triggered, hypothesis tries to create
 the smallest possible input-sequence that would trigger the assertion.
 
+Below is a state-transition-diagram representing the galactus code-base. Merged
+transitions are identifiable by the `@` that prefixes their event-name. The
+event-name text is written in the _direction of the transition_ (i.e. if the transition
+points downwards, then the name must be read from top to bottom).
+
+![](./imgs/galactus-flow-2.png)
+
+At a glance, you can tell that only admin-events may write to the db directly,
+while all others must pass through a load-phase (usually to autheticate or to
+fetch a resource). You can also see that admins receive notifications only after
+retryable operations exceed their retry-limit. It is also obvious that loading,
+storing, and safety-checking are the only retryable operations (so far). It is
+apparent that we explicitly require that you provide credentials for account destruction
+(even if you are already logged in). To put this in quantitative terms, this
+diagram represents 4.5k lines of code in a single screenfull.
+
+Because we are explicit about our states and transitions, the semantics of our verbs,
+and the correctness constraints between all elements of the program, we can confidently
+engage in refactors and even total rewrites (perhaps to entirely different languages)
+because the notion of **what makes a correct galactus** is not defined in terms of
+any concepts that are endemic to Python or to any of the modules (i.e. fastapi, sqlalchemy, etc)
+that we use.
 
 ## Cool Features
 ### Tests / Fuzzing
+#### Single Machine
+#### Parallel Machines
 ### Heatmaps
 ### Stochastification
 
@@ -119,4 +156,38 @@ client completes registration before the current one does).
 
 # Credits/Acknowledgements/Related-Work
 
-TODO References to wiki-pages and sources go here
+* https://www.wisdom.weizmann.ac.il/~harel/SCANNED.PAPERS/SemanticsofStatecharts.pdf
+* https://www.wisdom.weizmann.ac.il/~harel/papers/RhapsodySemantics.pdf
+* https://github.com/TritonDataCenter/node-mooremachine
+* https://en.wikipedia.org/wiki/De\_Bruijn\_notation
+* https://en.wikipedia.org/wiki/De\_Bruijn\_index
+* https://plato.stanford.edu/entries/logic-combinatory/
+* https://crypto.stanford.edu/~blynn/lambda/cl.html
+* https://plato.stanford.edu/entries/logic-linear/
+* https://web.archive.org/web/20190212005350/home.pipeline.com/~hbaker1/LinearLisp.html (html of next)
+* https://hashingit.com/elements/research-resources/1992-08-LinearLisp.pdf (pdf of prev)
+* https://www.youtube.com/watch?v=AfaNEebCDos (property based testing at Ericson)
+* https://hypothesis.works/
+* https://en.wikipedia.org/wiki/White-box\_testing
+* https://en.wikipedia.org/wiki/Design\_by\_contract
+* https://www.pathsensitive.com/2023/03/modules-matter-most-for-masses.html
+* TODO find link to Dan McDonald's talk about dynamic ASSERTs from dtrace.conf(16)
+* https://github.com/nickziv/libslablist (example repo with dtrace-enabled asserts)
+* https://plato.stanford.edu/entries/logic-modal/
+* https://plato.stanford.edu/entries/logic-temporal/
+* https://plato.stanford.edu/entries/logic-hybrid/
+* https://lamport.azurewebsites.net/tla/book-02-08-08.pdf
+* The Art of Computer Systems Performance Analysis by Raj Jain (Chapters 24 to 29)
+* https://en.wikipedia.org/wiki/Exponential\_backoff
+* https://martinfowler.com/bliki/FluentInterface.html
+* https://faculty.hampshire.edu/lspector/pubs/push-gpem-final.pdf (PushGP intro)
+* https://faculty.hampshire.edu/lspector/pubs/push3-gecco2005.pdf (PushGP combinators)
+* https://www.youtube.com/watch?v=VGJWlSC0gl4 (PushGP fast intro)
+* https://xpqz.github.io/learnapl/intro.html
+* https://code.jsoftware.com/wiki/Essays
+* https://www.jsoftware.com/help/jforc/contents.htm
+* https://raw.githubusercontent.com/codereport/Content/main/Publications/Combinatory\_Logic\_and\_Combinators\_in\_Array\_Languages.pdf
+* https://mlochbaum.github.io/BQN/index.html
+* https://www.youtube.com/watch?v=\_IgqJr8jG8M (cat/kitten lang)
+* https://www.youtube.com/watch?v=faHB4MGQIG8 (concatenation and creativity)
+* More to come
