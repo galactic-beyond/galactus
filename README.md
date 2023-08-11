@@ -180,6 +180,7 @@ client completes registration before the current one does).
 * The Art of Computer Systems Performance Analysis by Raj Jain (Chapters 24 to 29)
 * https://en.wikipedia.org/wiki/Exponential\_backoff
 * https://martinfowler.com/bliki/FluentInterface.html
+* Thinking Forth by Leo Brodie
 * https://faculty.hampshire.edu/lspector/pubs/push-gpem-final.pdf (PushGP intro)
 * https://faculty.hampshire.edu/lspector/pubs/push3-gecco2005.pdf (PushGP combinators)
 * https://www.youtube.com/watch?v=VGJWlSC0gl4 (PushGP fast intro)
