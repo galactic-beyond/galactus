@@ -91,9 +91,10 @@ between all states, events, stacks, and classes which should prevent developers
 from over-expressing themselves into a dark corner of tangled logical
 convolutions.
 
-We use the `hypothesis` framework to generate test data and to drive event/data-inputs
-into the state-machine. If any assertion gets triggered, hypothesis tries to create
-the smallest possible input-sequence that would trigger the assertion.
+We use the `hypothesis` framework to generate test data and to drive
+event/data-inputs into the state-machine (see the `fuzzer` class). If any
+assertion gets triggered, hypothesis tries to create the smallest possible
+input-sequence that would trigger the assertion.
 
 Below is a state-transition-diagram representing the galactus code-base. Merged
 transitions are identifiable by the `@` that prefixes their event-name. The
@@ -120,8 +121,43 @@ that we use.
 
 ## Cool Features
 ### Tests / Fuzzing
+
+We use the `RuleBasedStateMachine` class from hypothesis to barrage the Endo statemachine
+with inputs. We do some lightweight response-validation inside the methods of the fuzzer-class,
+but most of the verification happens inside the Endo class, which calls the `pre_verify` and
+`post_verify` functions (which contain tests that get run at the beginning and end of each transition,
+respectively. Each test is preceded with a short comment describing what it verifies. These tests
+can enable/disable themselves depending on state, context, and event (among other things). Other
+tests can be found in the `__assert__` method attached to the classes, which verify the object
+integrity on every modification.
+
+To run the fuzzer, make sure that the `unit_test_flag` is set to `True`, and
+simply do `python core.py > TESTOUT 2> TESTERR`. The reduced-test (smallest
+error-reproducing input-sequence) will be in `TESTERR`, while all the previous
+tests (and debug prints, if any) will be in `TESTOUT`. 
+
+The causes of most errors are obvious from the stack-trace and line-numbers,
+but sometimes they are not (i.e. backoff-object failing its `__assert__` test).
+If they are not, you can narrow down the possibilities by adding more tests to
+the `pre_verify` and `post_verify` functions (i.e. making sure that the
+backoff-object is always reset when we enter the `ready` state, eliminates the
+possibility that the aforementioned assert-failure is due to drift between
+requests). Another good example: the tests detected that we enter the
+ready-state with non-empty load-query-stack, so we created a test to verify
+that we fail to empty the stack when we complete the load and try to
+test-site-safety.
+
+These tests let us express falsifiable _hypotheses_, and then the fuzzer-class
+will try to trigger a test-failure by barraging the Endo-class with inputs. We have
+found (and fixed) errors that were exposed only after 50 inputs were given -- something
+that we are unlikely to run into in the course of normal development, and something that
+is likely impossible to diagnose should it occur in production (short of detailed logs,
+and core-files with enough information to guide us towards that 50-input-sequence --
+and that is assuming that the error is directly noticeable to anybody at all).
+
 #### Single Machine
 #### Parallel Machines
+
 ### Heatmaps
 ### Stochastification
 
