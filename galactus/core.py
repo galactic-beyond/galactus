@@ -3,12 +3,14 @@ import datetime as datetime
 import sqlalchemy as sql
 from sqlalchemy import exc
 from sqlalchemy.pool import StaticPool
+import unittest
 import hypothesis as hyp
 from hypothesis.provisional import domains, urls
 from hypothesis import given
-from hypothesis.stateful import RuleBasedStateMachine, consumes, multiple, rule, precondition, invariant, initialize
+from hypothesis.stateful import Verbosity, Bundle, RuleBasedStateMachine, consumes, multiple, rule, precondition, invariant, initialize
 from operator import itemgetter
 from argon2 import PasswordHasher
+import argon2
 import fastapi as fapi
 from pydantic import BaseModel, validator
 from uuid import uuid4
@@ -16,6 +18,9 @@ import logging
 import traceback
 import json
 from starlette.responses import JSONResponse
+
+g_domains = domains
+g_urls = urls
 
 
 # Print Stack Traces
@@ -55,6 +60,11 @@ def verify_password(phash, pw):
     return ret
 
 
+# Hypothesis Settings
+hyp.settings.register_profile("dev", hyp.settings(verbosity=Verbosity.verbose))
+hyp.settings.load_profile("dev")
+# Unit Test Switch
+unit_test_mode = True
 # Main Test Switch
 galactus_test_mode = True
 # Threatslayer Public Key
@@ -145,85 +155,209 @@ stochastified_retries_succeed = True
 class fuzzer(RuleBasedStateMachine):
     exo = None
     endo = None
+    emails = Bundle("emails")
+    usernames = Bundle("usernames")
+    keys = Bundle("keys")
+    passwords = Bundle("passwords")
+    urls = Bundle("urls")
+    domains = Bundle("domains")
+    # Tuple of username,email,password,key
+    credentials = Bundle("credentials")
 
-    def mk_new_acct(self, value):
+    @initialize(target=passwords)
+    def init_static(self):
+        self.exo = exo
+        self.endo = endo
+        self.endo.reset_machine()
+        self.endo.send("ignite")
+        assert galactus_test_mode == True
+        db_metadata_main.drop_all(db_engine_main)
+        db_metadata_logs.drop_all(db_engine_logs)
+        db_metadata_main.create_all(db_engine_main)
+        db_metadata_logs.create_all(db_engine_logs)
+        return "password123"
+
+    @rule(target=emails, email=hyp.strategies.emails())
+    def add_email(self, email):
+        return email
+
+    @rule(target=keys, key=hyp.strategies.uuids())
+    def add_key(self, key):
+        return key
+
+    @rule(target=usernames,
+          username=hyp.strategies.from_regex(regex='[A-Za-z0-9]+',
+                                             fullmatch=True))
+    def add_username(self, username):
+        return username
+
+    @rule(target=urls, url=g_urls())
+    def add_url(self, url):
+        return url
+
+    @rule(target=domains, domain=g_domains())
+    def add_domain(self, domain):
+        return domain
+
+    @rule(target=credentials,
+          email=consumes(emails),
+          username=consumes(usernames),
+          password=passwords)
+    def mk_acct(self, email, username, password):
         exo = self.exo
         endo = self.endo
-        generate_unique_valid_account(exo)
+        exo.galactus_account_create(username=username,
+                                    unsalted_password=password,
+                                    email=email,
+                                    api_key=pub_key)
         endo.send("public-galactus-account-create")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 201:
+            new_key = dict_get(rsp.body, "key")
+            return (username, email, password, new_key)
+        elif rsp.status == 409:
+            tmp = 1
+            return None
+        else:
+            assert False
 
-    def mk_old_acct(self):
+    @rule(credential=credentials, email=emails, password=passwords)
+    def mk_old_acct(self, credential, email, password):
         exo = self.exo
         endo = self.endo
-        generate_duplicate_account(exo)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password=password,
+                                    email=email,
+                                    api_key=pub_key)
         endo.send("public-galactus-account-create")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 201:
+            assert False
+        elif rsp.status == 409:
+            assert True
+        else:
+            assert False
 
-    def rm_new_acct(self):
+    @rule(username=usernames, password=passwords)
+    def rm_new_acct(self, username, password):
         exo = self.exo
         endo = self.endo
-        generate_unique_valid_account(exo)
+        exo.galactus_account_create(username=username,
+                                    unsalted_password=password,
+                                    api_key=pub_key)
         endo.send("public-galactus-account-destroy")
 
-    def rm_old_acct(self, value):
+    @rule(credential=consumes(credentials))
+    def rm_old_acct(self, credential):
         exo = self.exo
         endo = self.endo
-        generate_duplicate_account(exo)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        password = c[2]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password=password,
+                                    api_key=pub_key)
         endo.send("public-galactus-account-destroy")
 
-    def login_old_acct(self, value):
+    @rule(credential=credentials)
+    def login_old_acct(self, credential):
         exo = self.exo
         endo = self.endo
-        generate_duplicate_account(exo)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        password = c[2]
+        exo.galactus_account_create(username=username,
+                                    api_key=pub_key,
+                                    unsalted_password=password)
         endo.send("public-galactus-account-login")
 
-    def login_old_acct_bad_pw(self, value):
+    @rule(credential=credentials)
+    def login_old_acct_bad_pw(self, credential):
         exo = self.exo
         endo = self.endo
-        generate_duplicate_account_bad_pw(exo)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        # Intentionally incorrect
+        password = c[1]
+        exo.galactus_account_create(username=username,
+                                    api_key=pub_key,
+                                    unsalted_password=password)
         endo.send("public-galactus-account-login")
 
-    def login_new_acct(self, value):
+    @rule(username=usernames, password=passwords)
+    def login_new_acct(self, username, password):
         exo = self.exo
         endo = self.endo
-        generate_unique_valid_account(exo)
+        exo.galactus_account_create(username=username,
+                                    api_key=pub_key,
+                                    unsalted_password=password)
         endo.send("public-galactus-account-login")
 
-    def logout_new_acct(self, value):
+    @rule(username=usernames, bkey=keys)
+    def logout_new_acct(self, username, bkey):
+        key = str(bkey)
         exo = self.exo
         endo = self.endo
-        generate_unique_valid_account(exo)
+        exo.galactus_account_create(username=username,
+                                    api_key=key,
+                                    unsalted_password='placeholder')
         endo.send("public-galactus-account-logout")
 
-    def logout_old_acct(self, value):
+    @rule(credential=credentials)
+    def logout_old_acct(self, credential):
         exo = self.exo
         endo = self.endo
-        generate_duplicate_account(exo)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        key = c[3]
+        exo.galactus_account_create(username=username,
+                                    api_key=key,
+                                    salted_password='placeholder')
         endo.send("public-galactus-account-logout")
 
-    def test_new_site(self):
+    @rule(url=urls, credential=credentials)
+    def test_site(self, url, credential):
         exo = self.exo
         endo = self.endo
-        generate_unique_site(exo)
-        generate_duplicate_account(exo)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        key = c[3]
+        exo.galactus_account_create(username=username,
+                                    api_key=key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
         endo.send("public-site-safe")
 
-    def test_old_site(self):
+    @rule(url=urls)
+    def test_site_anon(self, url):
         exo = self.exo
         endo = self.endo
-        generate_duplicate_site(exo)
-        generate_duplicate_account(exo)
-        endo.send("public-site-safe")
-
-    def test_new_site_anon(self):
-        exo = self.exo
-        endo = self.endo
-        generate_unique_site(exo)
-        endo.send("public-site-safe")
-
-    def test_old_site_anon(self):
-        exo = self.exo
-        endo = self.endo
-        generate_duplicate_site(exo)
+        exo.galactus_account_create(username='username',
+                                    api_key=pub_key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
         endo.send("public-site-safe")
 
 
@@ -274,221 +408,19 @@ def login_response_sane(bod):
     return b
 
 
-# Generators
-hyp_email_strat = hyp.strategies.emails()
-gen_email_list = []
-gen_email_list_used = []
-
-
-@given(hyp_email_strat)
-def gen_email_populate(email):
-    gen_email_list.append(email)
-
-
-if galactus_test_mode == True:
-    gen_email_populate()
-    gen_email_list = list(set(gen_email_list))
-
-
-def gen_email():
-    r = random.choice(gen_email_list)
-    gen_email_list.remove(r)
-    gen_email_list_used.append(r)
-    return r
-
-
-hyp_url_strat = urls()
-gen_url_list = []
-gen_url_list_used = []
-
-
-@given(hyp_url_strat)
-def gen_url_populate(url):
-    gen_url_list.append(url)
-
-
-if galactus_test_mode == True:
-    gen_url_populate()
-    gen_url_list = list(set(gen_url_list))
-
-
-def gen_url():
-    r = random.choice(gen_url_list)
-    gen_url_list.remove(r)
-    gen_url_list_used.append(r)
-    return r
-
-
-hyp_domain_strat = domains()
-gen_domain_list = []
-gen_domain_list_used = []
-
-
-@given(hyp_domain_strat)
-def gen_domain_populate(domain):
-    gen_domain_list.append(domain)
-
-
-if galactus_test_mode == True:
-    gen_domain_populate()
-    gen_domain_list = list(set(gen_domain_list))
-
-
-def gen_domain():
-    r = random.choice(gen_domain_list)
-    gen_domain_list.remove(r)
-    gen_domain_list_used.append(r)
-    return r
-
-
-hyp_uuid_strat = hyp.strategies.uuids()
-gen_uuid_list = []
-gen_uuid_list_used = []
-
-
-@given(hyp_uuid_strat)
-def gen_uuid_populate(uuid):
-    gen_uuid_list.append(uuid)
-
-
-if galactus_test_mode == True:
-    gen_uuid_populate()
-    gen_uuid_list = list(set(gen_uuid_list))
-
-
-def gen_uuid():
-    r = random.choice(gen_uuid_list)
-    gen_uuid_list.remove(r)
-    gen_uuid_list_used.append(r)
-    return r
-
-
-hyp_username_strat = hyp.strategies.from_regex(regex='[A-Za-z0-9]+',
-                                               fullmatch=True)
-gen_username_list = []
-gen_username_list_used = []
-
-
-@given(hyp_username_strat)
-def gen_username_populate(username):
-    gen_username_list.append(username)
-
-
-if galactus_test_mode == True:
-    gen_username_populate()
-    gen_username_list = list(set(gen_username_list))
-
-
-def gen_username():
-    r = random.choice(gen_username_list)
-    gen_username_list.remove(r)
-    gen_username_list_used.append(r)
-    return r
-
-
-# Generate objects and pushes them onto stack
-def generate_unique_valid_account(exo):
-    email = gen_email()
-    password = "password123"
-    username = gen_username()
-    key = str(gen_uuid())
-    exo.galactus_account_create(username=username,
-                                unsalted_password=password,
-                                email=email,
-                                api_key=key)
-
-
-def generate_unique_invalid_account(exo):
-    email = gen_email()
-    assert False
-
-
-def generate_duplicate_account(exo):
-    username = random.choice(gen_username_list_used)
-    email = random.choice(gen_email_list_used)
-    password = "password123"
-    exo.galactus_account_create(username=username,
-                                unsalted_password=password,
-                                email=email)
-
-
-def generate_duplicate_account_bad_pw(exo):
-    username = random.choice(gen_username_list_used)
-    email = random.choice(gen_email_list_used)
-    password = "123password123"
-    exo.galactus_account_create(username=username,
-                                unsalted_password=password,
-                                email=email)
-
-
-def generate_safe_site(exo):
-    assert False
-
-
-def generate_unsafe_site(exo):
-    assert False
-
-
-# Basic
-def run_program(exo):
-    endo = Endo()
-    endo.initialize_machine()
-    exo.set_endo(endo)
-    msg = "hello world"
-    print(msg)
-    ns = endo.get_next_states()
-    print(ns)
-    hm = endo.heatmap_to_list()
-    print(hm)
-    endo.send("ignite")
-    hm = endo.heatmap_to_list()
-    print(hm)
-    gas = endo.stackset.stacks["galactus-account"]
-    print(gas)
-    # Try Create
-    generate_unique_valid_account(exo)
-    print(gas)
-    ga = gas[0]
-    uname = ga.username
-    pw = ga.unsalted_password
-    print("creating")
-    endo.send("public-galactus-account-create")
-    ns = endo.get_next_states()
-    print(ns)
-    hm = endo.heatmap_to_list(sort_order="hotness")
-    print(hm)
-    print("TICKER")
-    print(endo.ticker)
-    print("RESPONSE")
-    rsp_ls = endo.stackset.stacks["response"]
-    rsp = rsp_ls[0]
-    new_key = dict_get(rsp.body, "key")
-    print(new_key)
-    # Try Logout
-    generate_duplicate_account(exo)
-    gas = endo.stackset.stacks["galactus-account"]
-    ga = gas[0]
-    ga.api_key = new_key
-    print(ga)
-    endo.send("public-galactus-account-logout")
-    rsp_ls = endo.stackset.stacks["response"]
-    rsp = rsp_ls[0]
-    print(rsp.body)
-    hm = endo.heatmap_to_list(sort_order="hotness")
-    print(hm)
-    # Try Login
-    generate_duplicate_account(exo)
-    ga = gas[0]
-    uname = ga.username
-    pw = ga.unsalted_password
-    ga.api_key = pub_key
-    ga.email = ""
-    endo.send("public-galactus-account-login")
-    rsp_ls = endo.stackset.stacks["response"]
-    rsp = rsp_ls[0]
-    print(rsp.body)
-    hm = endo.heatmap_to_list(sort_order="hotness")
-    print(hm)
+def malicious_response_sane(bod):
+    keys = response_body_keys(bod)
+    b = True
+    b = (b and not bod == None)
+    b = (b and len(keys) == 1)
+    b = (b and is_member("malicious", keys))
+    # The classification-member on the site-object can accept any kind of data-type
+    # Here, however, we tend to assume integration with Octahedron, which only returns bools
+    # If Octahedron ever changes what it returns, this test will need to change
+    # The combination of a boolean-return and 'UNKNOWN'-string-return, basically means we return a ternary value
+    b = (b and
+         (isinstance(bod["malicious"], bool) or bod["malicious"] == "unknown"))
+    return b
 
 
 def is_member(elem, ls):
@@ -935,8 +867,9 @@ class site(object):
     flags = 0
     unlocks = 0
     visits = 0
-    stake_state = ""
-    classification = ""
+    stake_state = "neutral"
+    unique = False
+    classification = None
 
     def __init__(self,
                  _exo,
@@ -944,8 +877,9 @@ class site(object):
                  flags=0,
                  unlocks=0,
                  visits=0,
-                 stake_state="",
-                 classification=""):
+                 stake_state="neutral",
+                 unique=False,
+                 classification=None):
         self.__dict__["__constructed"] = False
         self._exo = _exo
         self.url = url
@@ -953,6 +887,7 @@ class site(object):
         self.unlocks = unlocks
         self.visits = visits
         self.stake_state = stake_state
+        self.unique = unique
         self.classification = classification
         self.__dict__["__constructed"] = True
         self.__assert__()
@@ -1247,6 +1182,7 @@ class StackSet:
         dict_put(stacks, "string", [])
         dict_put(stacks, "datetime", [])
         dict_put(stacks, "galactus-account", [])
+        dict_put(stacks, "deleted-galactus-account", [])
         dict_put(stacks, "site", [])
         dict_put(stacks, "leaderboard", [])
         dict_put(stacks, "paging-control", [])
@@ -1463,6 +1399,9 @@ def dict_3put(d, k1, k2, k3, v):
 
 def pre_verify():
     if galactus_test_mode == True:
+        # backoff-reset
+        (exo.state_create(
+            name="ready").state_is().backoff_is_reset().guarded_verify())
         # ready-contextualized
         (exo.state_create(name="ready").prev_state_is().context_empty().is_not(
         ).guarded_verify())
@@ -1474,12 +1413,12 @@ def pre_verify():
         ).guarded_verify())
         # account-regdate-context-matches-try
         (exo.state_create(
-            name="galactus-store-try").next_state_is().context_create(
+            name="galactus-store-tried").next_state_is().context_create(
                 event="public-galactus-account-create").context_is().andify().
          account_regdate_after_context_timestamp().guarded_verify())
         # two-accounts-for-logout-try
         (exo.state_create(
-            name="galactus-store-try").next_state_is().context_create(
+            name="galactus-store-tried").next_state_is().context_create(
                 event="public-galactus-account-logout").context_is().andify().
          number_create(
              val=2).galactus_account_length().number_gteq().guarded_verify())
@@ -1499,6 +1438,17 @@ def post_verify():
         # galactus-account-last-req
         (exo.state_create(name="ready").prev_state_is().galactus_account_empty(
         ).is_not().andify().galactus_account_has_last_req().guarded_verify())
+        # two-queries-safety
+        (exo.state_create(name="ready").state_is().state_create(
+            name="galactus-load-tried").next_state_is().
+         andify().context_create(event="public-site-safe").context_is().andify(
+         ).db_load_query_length().number_create(
+             val=2).number_eq().guarded_verify())
+        # octa-test-empty-load
+        (exo.state_create(
+            name="test-safety-tried").next_state_is().state_create(
+                name="galactus-load-tried").state_is().andify().
+         db_load_query_empty().guarded_verify())
         # ready-empty-account
         (exo.state_create(name="ready").next_state_is().galactus_account_empty(
         ).guarded_verify())
@@ -1512,13 +1462,13 @@ def post_verify():
         (exo.state_create(name="ready").next_state_is().db_load_query_empty().
          guarded_verify())
         # store-query-present-try
-        (exo.state_create(name="galactus-store-try").next_state_is().
+        (exo.state_create(name="galactus-store-tried").next_state_is().
          db_store_query_empty().is_not().guarded_verify())
         # load-query-empty-try
-        (exo.state_create(name="galactus-store-try").next_state_is().
+        (exo.state_create(name="galactus-store-tried").next_state_is().
          db_load_query_empty().guarded_verify())
         # load-query-present-try
-        (exo.state_create(name="galactus-load-try").next_state_is().
+        (exo.state_create(name="galactus-load-tried").next_state_is().
          db_load_query_empty().is_not().guarded_verify())
         # ready-empty-site
         (exo.state_create(
@@ -1559,7 +1509,13 @@ class Endo:
     def update_event(self, event, eventset):
         self.stackset.set_changeable(["event", "prev-event", "eventset"])
         pe = self.stackset.pop("event")
-        self.stackset.push("prev-event", pe)
+        if not pe == event:
+            # Only store new events as previous events
+            # No new informatin gets communicate by storing the same event in both stacks
+            # If you need to know whether an event has been called more than once, use a first-class counter
+            # The prev-event stack exists to assist with testing and provide certain context-info to verbs
+            self.stackset.push("prev-event", pe)
+
         event_ult = event
         if not event == None:
             self.stackset.push("event", event)
@@ -1849,11 +1805,13 @@ class Endo:
             "public-galactus-account-destroy", "public-galactus-account-login",
             "public-galactus-account-logout", "public-wallet-add"
         ])
+        self.add_many_to_event_set("@retry-prev-or-store-next", [
+            "account-meters-stored", "galactus-store-error",
+            "deleted-account-stored"
+        ])
         self.add_many_to_event_set(
-            "@retry-prev-or-store-next",
-            ["account-meters-stored", "galactus-store-error"])
-        self.add_many_to_event_set("@retry-prev-or-load-next",
-                                   ["site-loaded", "galactus-load-error"])
+            "@retry-prev-or-load-next",
+            ["site-loaded", "site-not-loaded", "galactus-load-error"])
 
         endo.add_transition("begin-here", "ready", "ignite")
 
@@ -1876,10 +1834,10 @@ class Endo:
         dict_2put(endo.transition_code, "begin-here", "ignite",
                   begin_here__ready__ignite)
 
-        endo.add_transition("ready", "galactus-load-try",
+        endo.add_transition("ready", "galactus-load-tried",
                             "@public-acct-manage")
 
-        def ready__galactus_load_try__evset_public_acct_manage(endo):
+        def ready__galactus_load_tried__evset_public_acct_manage(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -1910,7 +1868,7 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@public-acct-manage",
-                  ready__galactus_load_try__evset_public_acct_manage)
+                  ready__galactus_load_tried__evset_public_acct_manage)
 
         endo.add_transition("ready", "panic", "multiple-policies")
 
@@ -1927,10 +1885,10 @@ class Endo:
         dict_2put(endo.transition_code, "ready", "multiple-policies",
                   ready__panic__multiple_policies)
 
-        endo.add_transition("ready", "galactus-load-try",
+        endo.add_transition("ready", "galactus-load-tried",
                             "load-reward-strategy")
 
-        def ready__galactus_load_try__load_reward_strategy(endo):
+        def ready__galactus_load_tried__load_reward_strategy(endo):
             pre_verify()
             endo.event = None
             (exo.contextualize().load_reward_strategy_table())
@@ -1941,12 +1899,12 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "load-reward-strategy",
-                  ready__galactus_load_try__load_reward_strategy)
+                  ready__galactus_load_tried__load_reward_strategy)
 
-        endo.add_transition("galactus-load-try", "site-flag-unlock-try",
+        endo.add_transition("galactus-load-tried", "site-ping-tried",
                             "flaggable-loaded")
 
-        def galactus_load_try__site_flag_unlock_try__flaggable_loaded(endo):
+        def galactus_load_tried__site_ping_tried__flaggable_loaded(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().load_query_discard().site_ping())
@@ -1956,15 +1914,14 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-load-try",
+        dict_2put(endo.transition_code, "galactus-load-tried",
                   "flaggable-loaded",
-                  galactus_load_try__site_flag_unlock_try__flaggable_loaded)
+                  galactus_load_tried__site_ping_tried__flaggable_loaded)
 
-        endo.add_transition("site-flag-unlock-try", "galactus-store-try",
+        endo.add_transition("site-ping-tried", "galactus-store-tried",
                             "@site-reachable")
 
-        def site_flag_unlock_try__galactus_store_try__evset_site_reachable(
-                endo):
+        def site_ping_tried__galactus_store_tried__evset_site_reachable(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -1983,13 +1940,12 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(
-            endo.transition_code, "site-flag-unlock-try", "@site-reachable",
-            site_flag_unlock_try__galactus_store_try__evset_site_reachable)
+        dict_2put(endo.transition_code, "site-ping-tried", "@site-reachable",
+                  site_ping_tried__galactus_store_tried__evset_site_reachable)
 
-        endo.add_transition("ready", "galactus-load-try", "@public-fetch")
+        endo.add_transition("ready", "galactus-load-tried", "@public-fetch")
 
-        def ready__galactus_load_try__evset_public_fetch(endo):
+        def ready__galactus_load_tried__evset_public_fetch(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2013,19 +1969,20 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@public-fetch",
-                  ready__galactus_load_try__evset_public_fetch)
+                  ready__galactus_load_tried__evset_public_fetch)
 
-        endo.add_transition("ready", "galactus-load-try", "@public-safety")
+        endo.add_transition("ready", "galactus-load-tried", "@public-safety")
 
-        def ready__galactus_load_try__evset_public_safety(endo):
+        def ready__galactus_load_tried__evset_public_safety(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
             br_event = self.stackset.peek("event")
             self.stackset.reset_access()
-            if br_event == "public-safety-test":
-                (exo.contextualize().galactus_account_meters_as_load_by_key().
-                 stakeable_as_load().data_load())
+            if br_event == "public-site-safe":
+                (exo.contextualize().galactus_account_last_req(
+                ).galactus_account_meters_as_load_by_key().stakeable_as_load().
+                 data_load())
             elif br_event == "public-site-unlock":
                 (exo.contextualize().galactus_account_key_blocklist_as_load().
                  stakeable_as_load().data_load())
@@ -2042,22 +1999,22 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@public-safety",
-                  ready__galactus_load_try__evset_public_safety)
+                  ready__galactus_load_tried__evset_public_safety)
 
-        endo.add_transition("galactus-load-try", "test-safety-try",
+        endo.add_transition("galactus-load-tried", "test-safety-tried",
                             "@test-safety")
 
-        def galactus_load_try__test_safety_try__evset_test_safety(endo):
+        def galactus_load_tried__test_safety_tried__evset_test_safety(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
             br_event = self.stackset.peek("event")
             self.stackset.reset_access()
             if br_event == "can-test-safety-personally":
-                (exo.galactus_account_increment_meters().site_increment_stats(
-                ).octahedron_test_site())
+                (exo.load_query_discard().galactus_account_increment_meters().
+                 octahedron_test_site())
             elif br_event == "cannot-test-safety-personally":
-                (exo.octahedron_test_site())
+                (exo.load_query_discard().octahedron_test_site())
             else:
                 assert False
 
@@ -2067,12 +2024,13 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-load-try", "@test-safety",
-                  galactus_load_try__test_safety_try__evset_test_safety)
+        dict_2put(endo.transition_code, "galactus-load-tried", "@test-safety",
+                  galactus_load_tried__test_safety_tried__evset_test_safety)
 
-        endo.add_transition("ready", "galactus-store-try", "@admin-db-change")
+        endo.add_transition("ready", "galactus-store-tried",
+                            "@admin-db-change")
 
-        def ready__galactus_store_try__evset_admin_db_change(endo):
+        def ready__galactus_store_tried__evset_admin_db_change(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2096,11 +2054,11 @@ class Endo:
             return
 
         dict_2put(endo.transition_code, "ready", "@admin-db-change",
-                  ready__galactus_store_try__evset_admin_db_change)
+                  ready__galactus_store_tried__evset_admin_db_change)
 
-        endo.add_transition("galactus-load-try", "ready", "galactus-loaded")
+        endo.add_transition("galactus-load-tried", "ready", "galactus-loaded")
 
-        def galactus_load_try__ready__galactus_loaded(endo):
+        def galactus_load_tried__ready__galactus_loaded(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().load_query_discard().respond().stack_gc().
@@ -2111,13 +2069,14 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-load-try", "galactus-loaded",
-                  galactus_load_try__ready__galactus_loaded)
+        dict_2put(endo.transition_code, "galactus-load-tried",
+                  "galactus-loaded",
+                  galactus_load_tried__ready__galactus_loaded)
 
-        endo.add_transition("galactus-load-try", "galactus-load-try",
+        endo.add_transition("galactus-load-tried", "galactus-load-tried",
                             "@retry-prev-or-load-next")
 
-        def galactus_load_try__galactus_load_try__evset_retry_prev_or_load_next(
+        def galactus_load_tried__galactus_load_tried__evset_retry_prev_or_load_next(
                 endo):
             pre_verify()
             endo.event = None
@@ -2128,7 +2087,12 @@ class Endo:
                 (exo.backoff().data_load())
             elif br_event == "site-loaded":
                 # Reset backoff if we are loading more stuff, instead of recovering from error
-                (exo.backoff_reset().load_query_discard().data_load())
+                (exo.stakeable_visits_increment().backoff_reset().
+                 load_query_discard().data_load())
+            elif br_event == "site-not-loaded":
+                # Reset backoff if we are loading more stuff, instead of recovering from error
+                (exo.stakeable_uniqueify().stakeable_visits_increment().
+                 backoff_reset().load_query_discard().data_load())
             else:
                 assert False
 
@@ -2139,31 +2103,33 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "galactus-load-try",
+            endo.transition_code, "galactus-load-tried",
             "@retry-prev-or-load-next",
-            galactus_load_try__galactus_load_try__evset_retry_prev_or_load_next
+            galactus_load_tried__galactus_load_tried__evset_retry_prev_or_load_next
         )
 
-        endo.add_transition("galactus-load-try", "notify-admin",
+        endo.add_transition("galactus-load-tried", "notify-admin",
                             "backoff-period")
 
-        def galactus_load_try__notify_admin__backoff_period(endo):
+        def galactus_load_tried__notify_admin__backoff_period(endo):
             pre_verify()
             endo.event = None
-            (exo.backoff_reset().load_query_discard())
+            (exo.backoff_reset().load_query_discard().load_query_discard().
+             context_log())
             if endo.event == None:
                 endo.update_event(None, None)
 
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-load-try", "backoff-period",
-                  galactus_load_try__notify_admin__backoff_period)
+        dict_2put(endo.transition_code, "galactus-load-tried",
+                  "backoff-period",
+                  galactus_load_tried__notify_admin__backoff_period)
 
-        endo.add_transition("test-safety-try", "galactus-store-try",
+        endo.add_transition("test-safety-tried", "galactus-store-tried",
                             "@safety-tested")
 
-        def test_safety_try__galactus_store_try__evset_safety_tested(endo):
+        def test_safety_tried__galactus_store_tried__evset_safety_tested(endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2184,13 +2150,14 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "test-safety-try", "@safety-tested",
-                  test_safety_try__galactus_store_try__evset_safety_tested)
+        dict_2put(
+            endo.transition_code, "test-safety-tried", "@safety-tested",
+            test_safety_tried__galactus_store_tried__evset_safety_tested)
 
-        endo.add_transition("test-safety-try", "test-safety-try",
+        endo.add_transition("test-safety-tried", "test-safety-tried",
                             "test-safety-error")
 
-        def test_safety_try__test_safety_try__test_safety_error(endo):
+        def test_safety_tried__test_safety_tried__test_safety_error(endo):
             pre_verify()
             endo.event = None
             (exo.backoff().octahedron_test_site())
@@ -2200,29 +2167,30 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "test-safety-try", "test-safety-error",
-                  test_safety_try__test_safety_try__test_safety_error)
+        dict_2put(endo.transition_code, "test-safety-tried",
+                  "test-safety-error",
+                  test_safety_tried__test_safety_tried__test_safety_error)
 
-        endo.add_transition("test-safety-try", "notify-admin",
+        endo.add_transition("test-safety-tried", "notify-admin",
                             "backoff-period")
 
-        def test_safety_try__notify_admin__backoff_period(endo):
+        def test_safety_tried__notify_admin__backoff_period(endo):
             pre_verify()
             endo.event = None
-            (exo.backoff_reset())
+            (exo.backoff_reset().context_log())
             if endo.event == None:
                 endo.update_event(None, None)
 
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "test-safety-try", "backoff-period",
-                  test_safety_try__notify_admin__backoff_period)
+        dict_2put(endo.transition_code, "test-safety-tried", "backoff-period",
+                  test_safety_tried__notify_admin__backoff_period)
 
-        endo.add_transition("galactus-store-try", "commit-changes",
+        endo.add_transition("galactus-store-tried", "changes-commited",
                             "galactus-stored")
 
-        def galactus_store_try__commit_changes__galactus_stored(endo):
+        def galactus_store_tried__changes_commited__galactus_stored(endo):
             pre_verify()
             endo.event = None
             (exo.backoff_reset().store_query_discard().context_log())
@@ -2232,14 +2200,14 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-store-try",
+        dict_2put(endo.transition_code, "galactus-store-tried",
                   "galactus-stored",
-                  galactus_store_try__commit_changes__galactus_stored)
+                  galactus_store_tried__changes_commited__galactus_stored)
 
-        endo.add_transition("galactus-store-try", "galactus-store-try",
+        endo.add_transition("galactus-store-tried", "galactus-store-tried",
                             "@retry-prev-or-store-next")
 
-        def galactus_store_try__galactus_store_try__evset_retry_prev_or_store_next(
+        def galactus_store_tried__galactus_store_tried__evset_retry_prev_or_store_next(
                 endo):
             pre_verify()
             endo.event = None
@@ -2249,7 +2217,9 @@ class Endo:
             if br_event == "galactus-store-error":
                 (exo.backoff().data_store())
             elif br_event == "account-meters-stored":
-                (exo.backoff_reset().data_store())
+                (exo.backoff_reset().store_query_discard().data_store())
+            elif br_event == "deleted-account-stored":
+                (exo.backoff_reset().store_query_discard().data_store())
             else:
                 assert False
 
@@ -2260,31 +2230,34 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "galactus-store-try",
+            endo.transition_code, "galactus-store-tried",
             "@retry-prev-or-store-next",
-            galactus_store_try__galactus_store_try__evset_retry_prev_or_store_next
+            galactus_store_tried__galactus_store_tried__evset_retry_prev_or_store_next
         )
 
-        endo.add_transition("galactus-store-try", "notify-admin",
+        endo.add_transition("galactus-store-tried", "notify-admin",
                             "backoff-period")
 
-        def galactus_store_try__notify_admin__backoff_period(endo):
+        def galactus_store_tried__notify_admin__backoff_period(endo):
             pre_verify()
             endo.event = None
-            (exo.backoff_reset().store_query_discard().context_log())
+            (exo.backoff_reset().store_query_discard().store_query_discard().
+             context_log())
             if endo.event == None:
                 endo.update_event(None, None)
 
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "galactus-store-try", "backoff-period",
-                  galactus_store_try__notify_admin__backoff_period)
+        dict_2put(endo.transition_code, "galactus-store-tried",
+                  "backoff-period",
+                  galactus_store_tried__notify_admin__backoff_period)
 
-        endo.add_transition("galactus-load-try", "ready",
+        endo.add_transition("galactus-load-tried", "ready",
                             "@sufficient-data-for-response")
 
-        def galactus_load_try__ready__evset_sufficient_data_for_response(endo):
+        def galactus_load_tried__ready__evset_sufficient_data_for_response(
+                endo):
             pre_verify()
             endo.event = None
             self.stackset.set_readable(["event"])
@@ -2319,14 +2292,14 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "galactus-load-try",
+            endo.transition_code, "galactus-load-tried",
             "@sufficient-data-for-response",
-            galactus_load_try__ready__evset_sufficient_data_for_response)
+            galactus_load_tried__ready__evset_sufficient_data_for_response)
 
-        endo.add_transition("galactus-load-try", "galactus-store-try",
+        endo.add_transition("galactus-load-tried", "galactus-store-tried",
                             "galactus-account-non-existent")
 
-        def galactus_load_try__galactus_store_try__galactus_account_non_existent(
+        def galactus_load_tried__galactus_store_tried__galactus_account_non_existent(
                 endo):
             pre_verify()
             endo.event = None
@@ -2340,15 +2313,15 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "galactus-load-try",
+            endo.transition_code, "galactus-load-tried",
             "galactus-account-non-existent",
-            galactus_load_try__galactus_store_try__galactus_account_non_existent
+            galactus_load_tried__galactus_store_tried__galactus_account_non_existent
         )
 
-        endo.add_transition("galactus-load-try", "credential-check",
+        endo.add_transition("galactus-load-tried", "credential-checked",
                             "galactus-account-destroyable")
 
-        def galactus_load_try__credential_check__galactus_account_destroyable(
+        def galactus_load_tried__credential_checked__galactus_account_destroyable(
                 endo):
             pre_verify()
             endo.event = None
@@ -2363,18 +2336,24 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "galactus-load-try",
+            endo.transition_code, "galactus-load-tried",
             "galactus-account-destroyable",
-            galactus_load_try__credential_check__galactus_account_destroyable)
+            galactus_load_tried__credential_checked__galactus_account_destroyable
+        )
 
-        endo.add_transition("credential-check", "galactus-store-try",
+        endo.add_transition("credential-checked", "galactus-store-tried",
                             "galactus-account-allow-destroy")
 
-        def credential_check__galactus_store_try__galactus_account_allow_destroy(
+        def credential_checked__galactus_store_tried__galactus_account_allow_destroy(
                 endo):
             pre_verify()
             endo.event = None
-            (exo.galactus_account_as_destroy_by_key().data_store())
+            # We want to store the deleted-account object first, because if we get interrupted we can always complete the delete afterwards
+            # If we do it the other way around, we can end up losing the original account-object, making it impossible to keep track of deletions
+            # Or we can just wrap everything in a transaction, but that makes galactus less portable
+            (exo.galactus_account_as_destroy_by_key(
+            ).galactus_account_deletify().deleted_galactus_account_as_store().
+             data_store())
             if endo.event == None:
                 endo.update_event(None, None)
 
@@ -2382,15 +2361,15 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "credential-check",
+            endo.transition_code, "credential-checked",
             "galactus-account-allow-destroy",
-            credential_check__galactus_store_try__galactus_account_allow_destroy
+            credential_checked__galactus_store_tried__galactus_account_allow_destroy
         )
 
-        endo.add_transition("credential-check", "ready",
+        endo.add_transition("credential-checked", "ready",
                             "galactus-account-disallow-destroy")
 
-        def credential_check__ready__galactus_account_disallow_destroy(endo):
+        def credential_checked__ready__galactus_account_disallow_destroy(endo):
             pre_verify()
             endo.event = None
             (exo.response_create(
@@ -2401,14 +2380,15 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "credential-check",
-                  "galactus-account-disallow-destroy",
-                  credential_check__ready__galactus_account_disallow_destroy)
+        dict_2put(
+            endo.transition_code, "credential-checked",
+            "galactus-account-disallow-destroy",
+            credential_checked__ready__galactus_account_disallow_destroy)
 
-        endo.add_transition("galactus-load-try", "galactus-store-try",
+        endo.add_transition("galactus-load-tried", "galactus-store-tried",
                             "galactus-account-can-logout")
 
-        def galactus_load_try__galactus_store_try__galactus_account_can_logout(
+        def galactus_load_tried__galactus_store_tried__galactus_account_can_logout(
                 endo):
             pre_verify()
             endo.event = None
@@ -2421,9 +2401,10 @@ class Endo:
             return
 
         dict_2put(
-            endo.transition_code, "galactus-load-try",
+            endo.transition_code, "galactus-load-tried",
             "galactus-account-can-logout",
-            galactus_load_try__galactus_store_try__galactus_account_can_logout)
+            galactus_load_tried__galactus_store_tried__galactus_account_can_logout
+        )
 
         endo.add_transition("notify-admin", "ready", "commited")
 
@@ -2441,9 +2422,9 @@ class Endo:
         dict_2put(endo.transition_code, "notify-admin", "commited",
                   notify_admin__ready__commited)
 
-        endo.add_transition("commit-changes", "ready", "commited")
+        endo.add_transition("changes-commited", "ready", "commited")
 
-        def commit_changes__ready__commited(endo):
+        def changes_commited__ready__commited(endo):
             pre_verify()
             endo.event = None
             (exo.response_create(
@@ -2454,8 +2435,8 @@ class Endo:
             post_verify()
             return
 
-        dict_2put(endo.transition_code, "commit-changes", "commited",
-                  commit_changes__ready__commited)
+        dict_2put(endo.transition_code, "changes-commited", "commited",
+                  changes_commited__ready__commited)
 
 
 class Exo:
@@ -2634,6 +2615,34 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def deleted_galactus_account_empty(self):
+        self.stackset.set_readable(["deleted-galactus-account", "boolean"])
+        self.stackset.set_changeable(["boolean"])
+        slen = self.stackset.stack_len("deleted-galactus-account")
+        self.stackset.push("boolean", slen == 0)
+        self.stackset.reset_access()
+        return self
+
+    def deleted_galactus_account_length(self):
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "deleted-galactus-account"))
+        self.stackset.push("number", l)
+        self.stackset.reset_access()
+        return self
+
+    def deleted_galactus_account_create(
+            self,
+            deletion_date=datetime.datetime.now(),
+            registration_date=datetime.datetime.now(),
+            username=""):
+        self.stackset.set_changeable(["deleted-galactus-account"])
+        ret = deleted_galactus_account(self, deletion_date, registration_date,
+                                       username)
+        dstack = self.stackset.stacks["deleted-galactus-account"]
+        dstack.append(ret)
+        self.stackset.reset_access()
+        return self
+
     def site_empty(self):
         self.stackset.set_readable(["site", "boolean"])
         self.stackset.set_changeable(["boolean"])
@@ -2654,10 +2663,11 @@ class Exo:
                     flags=0,
                     unlocks=0,
                     visits=0,
-                    stake_state="",
-                    classification=""):
+                    stake_state="neutral",
+                    unique=False,
+                    classification=None):
         self.stackset.set_changeable(["site"])
-        ret = site(self, url, flags, unlocks, visits, stake_state,
+        ret = site(self, url, flags, unlocks, visits, stake_state, unique,
                    classification)
         dstack = self.stackset.stacks["site"]
         dstack.append(ret)
@@ -3369,8 +3379,10 @@ class Exo:
 
     def data_load(self):
         exo = self
-        self.stackset.set_readable(
-            ["galactus-account", "context", "db-load-query"])
+        self.stackset.set_readable([
+            "galactus-account", "context", "db-load-query", "prev-event",
+            "event"
+        ])
         self.stackset.set_changeable(
             ["db-error", "site", "leaderboard", "galactus-account"])
         assert self.stackset.stack_len("db-load-query") > 0
@@ -3379,175 +3391,268 @@ class Exo:
         q = dbq.q
         ctx = self.stackset.peek("context")
         ev = ctx.event
-        try:
-            with db_engine_main.connect() as conn:
-                if ev == "public-galactus-account-create":
-                    rows = conn.execute(q)
-                    row = rows.first()
-                    if not row == None:
-                        self.endo.update_event("galactus-account-exists", None)
-                    elif row == None:
-                        self.endo.update_event("galactus-account-non-existent",
-                                               None)
-
-                elif ev == "public-galactus-account-destroy":
-                    rows = conn.execute(q)
-                    row = rows.first()
-                    if not row == None:
-                        phash = row[0]
-                        key = row[1]
-                        key_exp = row[2]
-                        username = row[3]
-                        email = row[4]
-                        exo.galactus_account_create(salted_password=phash,
-                                                    api_key=key,
-                                                    api_key_expiration=key_exp,
-                                                    username=username,
-                                                    email=email)
-                        self.endo.update_event("galactus-account-destroyable",
-                                               None)
-                    elif row == None:
-                        self.endo.update_event(
-                            "galactus-account-not-destroyable", None)
-
-                elif ev == "public-galactus-account-login":
-                    rows = conn.execute(q)
-                    row = rows.first()
-                    if not row == None:
-                        # We use the column order found in galactus_account_creds_as_load
-                        phash = row[0]
-                        key = row[1]
-                        key_exp = row[2]
-                        username = row[3]
-                        email = row[4]
-                        exo.galactus_account_create(salted_password=phash,
-                                                    api_key=key,
-                                                    api_key_expiration=key_exp,
-                                                    username=username,
-                                                    email=email)
-                        self.endo.update_event("galactus-account-can-login",
-                                               None)
-                    elif row == None:
-                        self.endo.update_event("galactus-account-cannot-login",
-                                               None)
-
-                elif ev == "public-galactus-account-logout":
-                    rows = conn.execute(q)
-                    row = rows.first()
-                    if not row == None:
-                        key = row[0]
-                        username = row[1]
-                        ga = self.stackset.peek("galactus-account")
-                        lastreq = ga.last_request
-                        exo.galactus_account_create(
-                            salted_password='placeholder',
-                            api_key=key,
-                            username=username,
-                            last_request=lastreq)
-                        if username == ga.username:
+        pevlast = self.stackset.peek("prev-event")
+        evlast = self.stackset.peek("event")
+        if not evlast == "backoff-period":
+            # We have been told to keep re/trying
+            try:
+                with db_engine_main.connect() as conn:
+                    if ev == "public-galactus-account-create":
+                        rows = conn.execute(q)
+                        row = rows.first()
+                        if not row == None:
+                            self.endo.update_event("galactus-account-exists",
+                                                   None)
+                        elif row == None:
                             self.endo.update_event(
-                                "galactus-account-can-logout", None)
-                        elif not username == ga.username:
+                                "galactus-account-non-existent", None)
+
+                    elif ev == "public-galactus-account-destroy":
+                        rows = conn.execute(q)
+                        row = rows.first()
+                        if not row == None:
+                            phash = row[0]
+                            key = row[1]
+                            key_exp = row[2]
+                            username = row[3]
+                            email = row[4]
+                            exo.galactus_account_create(
+                                salted_password=phash,
+                                api_key=key,
+                                api_key_expiration=key_exp,
+                                username=username,
+                                email=email)
+                            self.endo.update_event(
+                                "galactus-account-destroyable", None)
+                        elif row == None:
+                            self.endo.update_event(
+                                "galactus-account-not-destroyable", None)
+
+                    elif ev == "public-galactus-account-login":
+                        rows = conn.execute(q)
+                        row = rows.first()
+                        if not row == None:
+                            # We use the column order found in galactus_account_creds_as_load
+                            phash = row[0]
+                            key = row[1]
+                            key_exp = row[2]
+                            username = row[3]
+                            email = row[4]
+                            exo.galactus_account_create(
+                                salted_password=phash,
+                                api_key=key,
+                                api_key_expiration=key_exp,
+                                username=username,
+                                email=email)
+                            self.endo.update_event(
+                                "galactus-account-can-login", None)
+                        elif row == None:
+                            self.endo.update_event(
+                                "galactus-account-cannot-login", None)
+
+                    elif ev == "public-galactus-account-logout":
+                        rows = conn.execute(q)
+                        row = rows.first()
+                        if not row == None:
+                            key = row[0]
+                            username = row[1]
+                            ga = self.stackset.peek("galactus-account")
+                            lastreq = ga.last_request
+                            exo.galactus_account_create(
+                                salted_password='placeholder',
+                                api_key=key,
+                                username=username,
+                                last_request=lastreq)
+                            if username == ga.username:
+                                self.endo.update_event(
+                                    "galactus-account-can-logout", None)
+                            elif not username == ga.username:
+                                self.endo.update_event(
+                                    "galactus-account-cannot-logout", None)
+
+                        elif row == None:
                             self.endo.update_event(
                                 "galactus-account-cannot-logout", None)
 
-                    elif row == None:
-                        self.endo.update_event(
-                            "galactus-account-cannot-logout", None)
+                    elif ev == "public-galactus-account-get":
+                        rows = conn.execute(q)
+                        row = rows.first()
+                        if row == None:
+                            self.endo.update_event(
+                                "galactus-account-non-existent", None)
+                        elif not row == None:
+                            assert False
 
-                elif ev == "public-galactus-account-get":
-                    rows = conn.execute(q)
-                    row = rows.first()
-                    if row == None:
-                        self.endo.update_event("galactus-account-non-existent",
-                                               None)
-                    elif not row == None:
+                    elif ev == "public-site-safe":
+                        rows = conn.execute(q)
+                        row = rows.first()
+                        # We know that we tried to load a site if evlast is not a relevant event, or if pevlast is relevant and evlast is error
+                        site_load_context = (
+                            not (evlast == "site-loaded"
+                                 or evlast == "site-not-loaded")
+                            or (evlast == "galactus-load-error" and
+                                (pevlast == "site-loaded"
+                                 or pevlast == "site-not-loaded")))
+                        if row == None:
+                            if site_load_context == True:
+                                self.endo.update_event("site-not-loaded", None)
+                            else:
+                                self.endo.update_event(
+                                    "cannot-test-safety-personally", None)
+
+                        elif not row == None:
+                            if site_load_context == True:
+                                url = row[0]
+                                visits = row[1]
+                                unlocks = row[2]
+                                flags = row[3]
+                                stake_state = row[4]
+                                exo.site_create(unique=False,
+                                                url=url,
+                                                visits=visits,
+                                                unlocks=unlocks,
+                                                flags=flags,
+                                                stake_state=stake_state)
+                                self.endo.update_event("site-loaded", None)
+                            else:
+                                username = row[0]
+                                email = row[1]
+                                salted_password = row[2]
+                                tokens_deposited = row[3]
+                                tokens_deducted = row[4]
+                                malicious = row[5]
+                                unique = row[6]
+                                lookups_new = row[7]
+                                exo.galactus_account_create(
+                                    username=username,
+                                    email=email,
+                                    salted_password=salted_password,
+                                    tokens_deposited=tokens_deposited,
+                                    tokens_deducted=tokens_deducted,
+                                    malicious=malicious,
+                                    unique=unique,
+                                    lookups_new=lookups_new)
+                                self.endo.update_event(
+                                    "can-test-safety-personally", None)
+
+                    elif (ev == "public-site-unlock"
+                          or ev == "public-site-flag"
+                          or ev == "public-site-forget"):
+                        # TODO Use JOIN here (see galactus_account_key_blocklist_as_load
                         assert False
+                        dbqls = self.stackset.peek_list("db-load-query")
+                        q_ga = dbqls[0]
+                        q_uab = dbqls[1]
+                        q_ss = dbqls[2]
+                        user_rows = conn.execute(q_ga)
+                        # TODO misusing cursor object below
+                        assert False
+                        if len(user_rows) > 0:
+                            if ev == "public-site-forget":
+                                xyz = 123
+                                assert False
+                            else:
+                                allow_block_rows = conn.execute(q_uab)
 
-                elif (ev == "public-site-unlock" or ev == "public-site-flag"
-                      or ev == "public-site-forget"):
-                    # TODO Use JOIN here (see galactus_account_key_blocklist_as_load
-                    assert False
-                    dbqls = self.stackset.peek_list("db-load-query")
-                    q_ga = dbqls[0]
-                    q_uab = dbqls[1]
-                    q_ss = dbqls[2]
-                    user_rows = conn.execute(q_ga)
-                    # TODO misusing cursor object below
-                    assert False
-                    if len(user_rows) > 0:
-                        if ev == "public-site-forget":
-                            xyz = 123
-                            assert False
-                        else:
-                            allow_block_rows = conn.execute(q_uab)
+                        site_rows = conn.execute(q_ss)
+                        if len(rows) == 0:
+                            self.endo.update_event("stakeable-non-existent",
+                                                   None)
+                        elif len(rows) > 0:
+                            for r in rows:
+                                xyz = 123
+                                assert False
 
-                    site_rows = conn.execute(q_ss)
-                    if len(rows) == 0:
-                        self.endo.update_event("stakeable-non-existent", None)
-                    elif len(rows) > 0:
-                        for r in rows:
-                            xyz = 123
-                            assert False
+                            self.endo.update_event("stakeable-exists", None)
 
-                        self.endo.update_event("stakeable-exists", None)
+            except exc.DisconnectionError as e:
+                # Retryable
+                self.endo.update_event("galactus-load-error", None)
 
-        except exc.DisconnectionError as e:
-            # Retryable
-            self.endo.update_event("galactus-load-error", None)
+            except exc.TimeoutError as e:
+                # Retryable
+                self.endo.update_event("galactus-load-error", None)
 
-        except exc.TimeoutError as e:
-            # Retryable
-            self.endo.update_event("galactus-load-error", None)
+            except exc.ArgumentError as e:
+                # Non Retryable
+                self.endo.update_event("backoff-period", None)
 
-        except exc.ArgumentError as e:
-            # Non Retryable
-            self.endo.update_event("backoff-period", None)
+            except exc.CompileError as e:
+                # Non Retryable
+                self.endo.update_event("backoff-period", None)
 
-        except exc.CompileError as e:
-            # Non Retryable
-            self.endo.update_event("backoff-period", None)
-
-        except exc.SQLAlchemyError:
-            # Non Retryable
-            self.endo.update_event("backoff-period", None)
+            except exc.SQLAlchemyError:
+                # Non Retryable
+                self.endo.update_event("backoff-period", None)
 
         self.stackset.reset_access()
         return self
 
     def data_store(self):
         exo = self
-        self.stackset.set_readable(["context", "db-store-query"])
+        self.stackset.set_readable(
+            ["prev-event", "event", "context", "db-store-query"])
         self.stackset.set_changeable(["db-error"])
         assert self.stackset.stack_len("db-store-query") > 0
         dbq = self.stackset.peek("db-store-query")
         q = dbq.q
-        try:
-            with db_engine_main.connect() as conn:
-                result = conn.execute(q)
-                conn.commit()
+        ctx = self.stackset.peek("context")
+        ev = ctx.event
+        evlast = self.stackset.peek("event")
+        pevlast = self.stackset.peek("prev-event")
+        if not evlast == "backoff-period":
+            # We have been told to keep re/trying
+            try:
+                with db_engine_main.connect() as conn:
+                    result = conn.execute(q)
+                    conn.commit()
+                    if ev == "public-site-safe":
+                        account_store_context = (
+                            (evlast == "safety-tested"
+                             or evlast == "safety-tested-anon")
+                            or (evlast == "galactus-store-error" and
+                                (pevlast == "safety-tested"
+                                 or pevlast == "safety-tested-anon")))
+                        if account_store_context == True:
+                            self.endo.update_event("account-meters-stored",
+                                                   None)
+                        else:
+                            self.endo.update_event("galactus-stored", None)
 
-            self.endo.update_event("galactus-stored", None)
+                    elif ev == "public-galactus-account-destroy":
+                        deleted_account_store_context = (
+                            evlast == "galactus-account-allow-destroy" or
+                            (evlast == "galactus-store-error"
+                             and pevlast == "galactus-account-allow-destroy"))
+                        if deleted_account_store_context == True:
+                            self.endo.update_event("deleted-account-stored",
+                                                   None)
+                        else:
+                            self.endo.update_event("galactus-stored", None)
 
-        except exc.DisconnectionError as e:
-            # Retryable
-            self.endo.update_event("galactus-store-error", None)
+                    else:
+                        # All other contexts are straight forward
+                        self.endo.update_event("galactus-stored", None)
 
-        except exc.TimeoutError as e:
-            # Retryable
-            self.endo.update_event("galactus-store-error", None)
+            except exc.DisconnectionError as e:
+                # Retryable
+                self.endo.update_event("galactus-store-error", None)
 
-        except exc.ArgumentError as e:
-            # Non Retryable
-            self.endo.update_event("backoff-period", None)
+            except exc.TimeoutError as e:
+                # Retryable
+                self.endo.update_event("galactus-store-error", None)
 
-        except exc.CompileError as e:
-            # Non Retryable
-            self.endo.update_event("backoff-period", None)
+            except exc.ArgumentError as e:
+                # Non Retryable
+                self.endo.update_event("backoff-period", None)
 
-        except exc.SQLAlchemyError:
-            # Non Retryable
-            self.endo.update_event("backoff-period", None)
+            except exc.CompileError as e:
+                # Non Retryable
+                self.endo.update_event("backoff-period", None)
+
+            except exc.SQLAlchemyError:
+                # Non Retryable
+                self.endo.update_event("backoff-period", None)
 
         self.stackset.reset_access()
         return self
@@ -3555,7 +3660,7 @@ class Exo:
     def stack_gc(self):
         exo = self
         self.stackset.set_readable(["context"])
-        self.stackset.set_changeable(["galactus-account"])
+        self.stackset.set_changeable(["galactus-account", "site"])
         ctx = self.stackset.peek("context")
         event = ctx.event
         if event == "public-galactus-account-create":
@@ -3569,6 +3674,10 @@ class Exo:
         elif event == "public-galactus-account-login":
             self.stackset.pop("galactus-account")
             self.stackset.pop("galactus-account")
+        elif event == "public-site-safe":
+            self.stackset.pop("galactus-account")
+            self.stackset.pop("site")
+            self.stackset.pop("site")
         else:
             assert False
 
@@ -3597,6 +3706,20 @@ class Exo:
         self.stackset.set_changeable([])
         ga = self.stackset.peek("galactus-account")
         ga.registration_date = datetime.datetime.now()
+        self.stackset.reset_access()
+        return self
+
+    def galactus_account_deletify(self):
+        exo = self
+        self.stackset.set_readable(["galactus-account"])
+        self.stackset.set_changeable(["deleted-galactus-account"])
+        ga = self.stackset.peek("galactus-account")
+        username = ga.username
+        regdate = ga.registration_date
+        deldate = ga.last_request
+        self.deleted_galactus_account_create(username=username,
+                                             registration_date=regdate,
+                                             deletion_date=deldate)
         self.stackset.reset_access()
         return self
 
@@ -3705,6 +3828,48 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def galactus_account_increment_meters(self):
+        exo = self
+        self.stackset.set_readable(["context", "site", "galactus-account"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
+        ga = self.stackset.peek("galactus-account")
+        ctx = self.stackset.peek("context")
+        if s.unique == True:
+            ga.unique = (ga.unique + 1)
+
+        ga.lookups_new = (ga.lookups_new + 1)
+        # We increment malicious in a different verb only after we talk to octahedron
+        if ctx.event == "public-site-flag":
+            ga.flags = (ga.flags + 1)
+        elif ctx.event == "public-site-unlock":
+            ga.unlocks = (ga.unlocks + 1)
+
+        self.stackset.reset_access()
+        return self
+
+    def galactus_account_malicious_meter(self):
+        exo = self
+        self.stackset.set_readable(["context", "site", "galactus-account"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
+        ga = self.stackset.peek("galactus-account")
+        ctx = self.stackset.peek("context")
+        if s.unique == True:
+            ga.unique = (ga.unique + 1)
+
+        ga.lookups_new = (ga.lookups_new + 1)
+        # We increment malicious in a different verb only after we talk to octahedron
+        if ctx.event == "public-site-safe":
+            if s.classification == True:
+                ga.malicious = (ga.malicious + 1)
+
+        else:
+            assert False
+
+        self.stackset.reset_access()
+        return self
+
     def galactus_account_meters_as_load_by_key(self):
         exo = self
         self.stackset.set_readable(["galactus-account"])
@@ -3774,6 +3939,22 @@ class Exo:
         ga.api_key_expiration = (datetime.datetime.now() +
                                  datetime.timedelta(weeks=+4))
         ga.locked = True
+        self.stackset.reset_access()
+        return self
+
+    def deleted_galactus_account_as_store(self):
+        exo = self
+        self.stackset.set_readable(["deleted-galactus-account"])
+        self.stackset.set_changeable(["db-store-query"])
+        dga = self.stackset.peek("deleted-galactus-account")
+        dgaun = dga.username
+        dgard = dga.registration_date
+        dgadd = dga.deletion_date
+        q = sql.insert(deleted_galactus_account_table)
+        q = q.values(username=dgaun,
+                     registration_date=dgard,
+                     deletion_date=dgadd)
+        exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
 
@@ -3976,15 +4157,35 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def stakeable_visits_increment(self):
+        exo = self
+        self.stackset.set_readable(["site"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
+        s.visits = (s.visits + 1)
+        self.stackset.reset_access()
+        return self
+
+    def stakeable_uniqueify(self):
+        exo = self
+        self.stackset.set_readable(["site"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
+        s.unique = True
+        self.stackset.reset_access()
+        return self
+
     def stakeable_as_load(self):
         exo = self
         self.stackset.set_readable(["site"])
         self.stackset.set_changeable(["db-load-query"])
         s = self.stackset.peek("site")
         su = s.url
-        q = sql.select(site_table)
-        q = q.values(url=su)
-        exo.db_load_query_create(q=q)
+        q = sql.select(site_table.c.url, site_table.c.visits,
+                       site_table.c.unlocks, site_table.c.flags,
+                       site_table.c.stake_state)
+        q = q.where(site_table.c.url == su)
+        self.db_load_query_create(q=q)
         self.stackset.reset_access()
         return self
 
@@ -4063,15 +4264,18 @@ class Exo:
 
     def octahedron_test_site(self):
         exo = self
-        self.stackset.set_readable(["site"])
+        self.stackset.set_readable(["event", "site"])
         self.stackset.set_changeable([])
-        if stochastify_octahedron == True:
-            s = self.stackset.peek("site")
-            s.classification = random.choice([True, False])
-            event = random.choice(["safety-tested", "test-safety-error"])
-            exo.endo.update_event(event, None)
-        else:
-            assert False
+        evlast = self.stackset.peek("event")
+        if not evlast == "backoff-period":
+            # We have been told to keep re/trying
+            if stochastify_octahedron == True:
+                s = self.stackset.peek("site")
+                s.classification = random.choice([True, False])
+                event = random.choice(["safety-tested", "test-safety-error"])
+                exo.endo.update_event(event, None)
+            else:
+                assert False
 
         self.stackset.reset_access()
         return self
@@ -4084,9 +4288,11 @@ class Exo:
         # TODO add stochastic awareness for testing
         bs = self.stackset.peek("backoff-strategy")
         bs.retries = (bs.retries + 1)
-        bs.delay_ms = (bs.delay_ms * scale_factor)
-        if bs.delay_ms > bs.max_delay_ms:
+        delay_ms = (bs.delay_ms * bs.scale_factor)
+        if delay_ms > bs.max_delay_ms:
             self.endo.update_event("backoff-period", None)
+        else:
+            bs.delay_ms = delay_ms
 
         self.stackset.reset_access()
         return self
@@ -4112,6 +4318,20 @@ class Exo:
         maxd = bs.max_delay_ms
         in_range = (delay >= mind and delay <= maxd)
         self.stackset.push("boolean", in_range)
+        self.stackset.reset_access()
+        return self
+
+    def backoff_is_reset(self):
+        exo = self
+        self.stackset.set_readable(["backoff-strategy"])
+        self.stackset.set_changeable(["boolean"])
+        bs = self.stackset.peek("backoff-strategy")
+        if not bs == None:
+            is_reset = bs.delay_ms == bs.min_delay_ms
+            self.stackset.push("boolean", is_reset)
+        else:
+            self.stackset.push("boolean", True)
+
         self.stackset.reset_access()
         return self
 
@@ -4203,6 +4423,9 @@ class Exo:
         elif ctx.event == "public-galactus-account-get":
             # Should return public info about galactus account or non-existence
             assert False
+        elif ctx.event == "public-site-safe":
+            b = (b and not bod == None)
+            b = (b and malicious_response_sane(bod))
 
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
@@ -4227,7 +4450,7 @@ class Exo:
         elif ctx.event == "public-galactus-account-destroy":
             if res.status == 201:
                 res.body = {"key": pub_key}
-                # Override default status from the `commit-changes -> ready` transition
+                # Override default status from the `changes-commited -> ready` transition
                 res.status = 200
             elif res.status == 404:
                 # Maybe add message
@@ -4272,6 +4495,17 @@ class Exo:
                     # Account found, return pub-key
                     res.body = {"key": pub_key}
                     res.status = 200
+
+        elif ctx.event == "public-site-safe":
+            s = self.stackset.peek("site")
+            if s.classification == None:
+                res.status = 500
+                # We got here because our octahedron requests failed
+                # Instead of obscuring this, we let the client decide how to present this
+                res.body = {"malicious": "unknown"}
+            else:
+                res.status = 200
+                res.body = {"malicious": s.classification}
 
         else:
             assert False
@@ -4374,6 +4608,10 @@ endo = Endo()
 endo.initialize_machine()
 exo.set_endo(endo)
 endo.send("ignite")
+if (unit_test_mode == True and galactus_test_mode == True):
+    fuzz_machine = fuzzer.TestCase
+    unittest.main()
+
 app = fapi.FastAPI()
 
 
@@ -4527,5 +4765,4 @@ def http_user_logout(user_lo: UserLogout, res_bptr: fapi.Response) -> ApiKey:
     return response
 
 
-# Simple Test
 # TODO define verb wallet_as_load

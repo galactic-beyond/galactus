@@ -152,7 +152,13 @@ the only thing that changes with multiple workers and a shared DB, is that if 2 
 the same user-account they will race, and 1 will create it successfully while the other will fail to
 do so in a non-retryable way because of a primary-key-conflict -- a single worker-prevents this server-side,
 but users can still perceive a race client-side, if the client show the username as being available and **another**
-client completes registration before the current one does).
+client completes registration before the current one does). Another possible race-condition is when the
+same user visits a 2 sites from 2 clients and those arrive to galactus at the same time: with multiple
+workers (but not with only 1 worker), this can result (unlikely but possibly) in
+the meters getting incremented only once instead of twice. There are ways to prevent and mitigate this
+(i.e. enclosing each ready-exit and ready-entry in a serializable transaction, or making such updates
+diff/log/queue-oriented, and having a periodic worker reduce the diff-log into a single value), but
+for now we are going with the simple solution of running one worker until it becomes a problem.
 
 # Credits/Acknowledgements/Related-Work
 
@@ -180,7 +186,7 @@ client completes registration before the current one does).
 * The Art of Computer Systems Performance Analysis by Raj Jain (Chapters 24 to 29)
 * https://en.wikipedia.org/wiki/Exponential\_backoff
 * https://martinfowler.com/bliki/FluentInterface.html
-* Thinking Forth by Leo Brodie
+* Thinking Forth by Leo Brodie (reread Chapters 2 and 8 in retrospective context)
 * https://faculty.hampshire.edu/lspector/pubs/push-gpem-final.pdf (PushGP intro)
 * https://faculty.hampshire.edu/lspector/pubs/push3-gecco2005.pdf (PushGP combinators)
 * https://www.youtube.com/watch?v=VGJWlSC0gl4 (PushGP fast intro)
