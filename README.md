@@ -226,6 +226,7 @@ for now we are going with the simple solution of running one worker until it bec
 * https://faculty.hampshire.edu/lspector/pubs/push-gpem-final.pdf (PushGP intro)
 * https://faculty.hampshire.edu/lspector/pubs/push3-gecco2005.pdf (PushGP combinators)
 * https://www.youtube.com/watch?v=VGJWlSC0gl4 (PushGP fast intro)
+* https://github.com/interlock-network/interlock-models (much of the pragmatic/tactical/experiential ground-work for fuzzing was laid here, in addition to this repo providing the basic vocabulary for what galactus is supposed to do)
 * https://xpqz.github.io/learnapl/intro.html
 * https://code.jsoftware.com/wiki/Essays
 * https://www.jsoftware.com/help/jforc/contents.htm
