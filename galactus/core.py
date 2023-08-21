@@ -4931,7 +4931,7 @@ def validate_password_common(password):
 def validate_username_common(username):
     l = len(username)
     # TODO validate character set
-    if l < 6:
+    if l < 5:
         raise ValueError("username too short")
 
     return username
