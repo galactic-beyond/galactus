@@ -1,5 +1,7 @@
 import random as random
 import datetime as datetime
+import sqlalchemy.dialects.postgresql as pgsql
+import sqlalchemy.dialects.sqlite as sqlite
 import sqlalchemy as sql
 from sqlalchemy import exc
 from sqlalchemy.pool import StaticPool
@@ -13,6 +15,7 @@ from argon2 import PasswordHasher
 import argon2
 import fastapi as fapi
 from pydantic import BaseModel, validator
+from typing import Any
 from uuid import uuid4
 import logging
 import traceback
@@ -72,6 +75,12 @@ pub_key = "ceb62cfe-6ad9-4dab-8b34-46fcd6230d8c"
 # Initialize Database Tables
 db_path_main = "sqlite+pysqlite:///:memory:"
 db_path_logs = "sqlite+pysqlite:///:memory:"
+if not galactus_test_mode == True:
+    # Overwrite test-path with non-test, pg path for main, and sqlite on-disk path for logs.
+    assert False
+    db_path_main = "sqlite+pysqlite:///:memory:"
+    db_path_logs = "sqlite+pysqlite:///:memory:"
+
 connect_args = {"check_same_thread": False}
 poolclass = StaticPool
 db_engine_main = sql.create_engine(db_path_main,
@@ -82,18 +91,36 @@ db_engine_logs = sql.create_engine(db_path_logs,
                                    poolclass=poolclass)
 db_metadata_logs = sql.MetaData()
 db_metadata_main = sql.MetaData()
+# We want to know what failed for which site to (a) help us with diagnosis and
+# (b) to allow us to use the error-log as a backlog to update the statistics on
+# the stakeable-site object (which can fail if we use concurrent workers).
+# If we treat the successful increments as a _sample_, then the error logs
+# can help us estimate the deviation of the sample-count from the actual-count
+# As a note, if we have `W` workers, the maximum number of drops for a contentious
+# update is `W - 1`
 log_table = sql.Table("galactus_logs", db_metadata_logs,
                       sql.Column("ctx_event", sql.String),
                       sql.Column("success", sql.Boolean),
                       sql.Column("begin_time", sql.DateTime),
                       sql.Column("end_time", sql.DateTime),
                       sql.Column("error_type", sql.String),
+                      sql.Column("site_url", sql.String),
                       sql.Column("error_msg", sql.String))
 heatmap_table = sql.Table("galactus_heatmap_logs", db_metadata_logs,
                           sql.Column("write_time", sql.DateTime),
                           sql.Column("src", sql.String),
                           sql.Column("dst", sql.String),
                           sql.Column("heat", sql.Integer))
+# If your email is in this table, then it is not confirmed
+# If your email is not confirmed after expiration, you stop receiving rewards
+email_confirmation_table = sql.Table(
+    "email_confirmation", db_metadata_logs, sql.Column("email", sql.String),
+    sql.Column("expiration", sql.DateTime),
+    sql.Column("confirmation_id", sql.String, primary_key=True))
+change_password_confirmation_table = sql.Table(
+    "change_password_confirmation", db_metadata_logs,
+    sql.Column("username", sql.String), sql.Column("expiration", sql.DateTime),
+    sql.Column("confirmation_id", sql.String, primary_key=True))
 deleted_galactus_account_table = sql.Table(
     "deleted_account", db_metadata_main,
     sql.Column("username", sql.String, primary_key=True),
@@ -114,11 +141,14 @@ galactus_account_table = sql.Table(
     sql.Column("tokens_deducted_total", sql.Integer),
     sql.Column("tokens_earned", sql.Integer),
     sql.Column("tokens_earned_total", sql.Integer),
-    sql.Column("lookups_total", sql.Integer),
-    sql.Column("lookups_new", sql.Integer), sql.Column("malicious",
-                                                       sql.Integer),
-    sql.Column("unique", sql.Integer), sql.Column("flags", sql.Integer),
+    sql.Column("lookups_total",
+               sql.Integer), sql.Column("lookups", sql.Integer),
+    sql.Column("malicious_total", sql.Integer),
+    sql.Column("malicious", sql.Integer),
+    sql.Column("unique_total", sql.Integer), sql.Column("unique", sql.Integer),
+    sql.Column("flags_total", sql.Integer), sql.Column("flags", sql.Integer),
     sql.Column("flags_confirmed", sql.Integer),
+    sql.Column("unlocks_total", sql.Integer),
     sql.Column("unlocks", sql.Integer),
     sql.Column("unlocks_confirmed", sql.Integer),
     sql.Column("registration_date", sql.DateTime),
@@ -144,13 +174,9 @@ anon_allow_block_table = sql.Table("anon_allow_block", db_metadata_main,
                                    sql.Column("insert_time", sql.DateTime),
                                    sql.Column("url", sql.String),
                                    sql.Column("block", sql.Boolean))
+
+
 # Auxiliary Test Switches
-stochastify_octahedron = True
-stochastify_azero = True
-stochastify_price_oracle = True
-stochastified_retries_succeed = True
-
-
 # Fuzzer Class
 class fuzzer(RuleBasedStateMachine):
     exo = None
@@ -160,6 +186,7 @@ class fuzzer(RuleBasedStateMachine):
     keys = Bundle("keys")
     passwords = Bundle("passwords")
     urls = Bundle("urls")
+    tested_urls = Bundle("tested_urls")
     domains = Bundle("domains")
     # Tuple of username,email,password,key
     credentials = Bundle("credentials")
@@ -334,13 +361,13 @@ class fuzzer(RuleBasedStateMachine):
                                     salted_password='placeholder')
         endo.send("public-galactus-account-logout")
 
-    @rule(url=urls, credential=credentials)
-    def test_site(self, url, credential):
+    @rule(target=tested_urls, url=urls, credential=credentials)
+    def test_site_calm(self, url, credential):
         exo = self.exo
         endo = self.endo
         c = credential
         if c == None:
-            return
+            return None
 
         username = c[0]
         key = c[3]
@@ -348,9 +375,72 @@ class fuzzer(RuleBasedStateMachine):
                                     api_key=key,
                                     salted_password='placeholder')
         exo.site_create(url=url)
+        exo.stochasticity_create(octa=True)
         endo.send("public-site-safe")
+        exo.stackset.pop_unsafe("stochasticity")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False
 
-    @rule(url=urls)
+        return url
+
+    @rule(target=tested_urls, url=urls, credential=credentials)
+    def test_site(self, url, credential):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return None
+
+        username = c[0]
+        key = c[3]
+        exo.galactus_account_create(username=username,
+                                    api_key=key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
+        exo.stochasticity_create(octa=True, retries=True)
+        endo.send("public-site-safe")
+        exo.stackset.pop_unsafe("stochasticity")
+        return url
+
+    @rule(url=tested_urls, credential=credentials)
+    def retest_site(self, url, credential):
+        if url == None:
+            return None
+
+        self.test_site(url, credential)
+
+    @rule(target=tested_urls, url=urls)
+    def test_site_anon_calm(self, url):
+        exo = self.exo
+        endo = self.endo
+        exo.galactus_account_create(username='username',
+                                    api_key=pub_key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
+        exo.stochasticity_create(octa=True)
+        endo.send("public-site-safe")
+        exo.stackset.pop_unsafe("stochasticity")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False
+
+        return url
+
+    @rule(url=tested_urls)
+    def retest_site_anon_calm(self, url):
+        if url == None:
+            return None
+
+        self.test_site_anon_calm(url)
+
+    @rule(target=tested_urls, url=urls)
     def test_site_anon(self, url):
         exo = self.exo
         endo = self.endo
@@ -358,7 +448,17 @@ class fuzzer(RuleBasedStateMachine):
                                     api_key=pub_key,
                                     salted_password='placeholder')
         exo.site_create(url=url)
+        exo.stochasticity_create(octa=True, retries=True)
         endo.send("public-site-safe")
+        exo.stackset.pop_unsafe("stochasticity")
+        return url
+
+    @rule(url=tested_urls)
+    def retest_site_anon(self, url):
+        if url == None:
+            return None
+
+        self.test_site_anon(url)
 
 
 if galactus_test_mode == True:
@@ -431,6 +531,84 @@ def is_member(elem, ls):
     return False
 
 
+class email_confirmation(object):
+    _exo = None
+    expiration = datetime.datetime.now()
+    confirmation_id = ""
+    email = ""
+
+    def __init__(self,
+                 _exo,
+                 expiration=datetime.datetime.now(),
+                 confirmation_id="",
+                 email=""):
+        self.__dict__["__constructed"] = False
+        self._exo = _exo
+        self.expiration = expiration
+        self.confirmation_id = confirmation_id
+        self.email = email
+        self.__dict__["__constructed"] = True
+        self.__assert__()
+        return
+
+    def __assert__(self):
+        if not self.__dict__["__constructed"] == True:
+            return
+
+        exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("email-confirmation", self)
+        exo.stackset.pop_unsafe("email-confirmation")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
+        return
+
+    def __setattr__(self, name, value):
+        self.__dict__[f"{name}"] = value
+        self.__assert__()
+        return
+
+
+class change_password_confirmation(object):
+    _exo = None
+    expiration = datetime.datetime.now()
+    confirmation_id = ""
+    username = ""
+
+    def __init__(self,
+                 _exo,
+                 expiration=datetime.datetime.now(),
+                 confirmation_id="",
+                 username=""):
+        self.__dict__["__constructed"] = False
+        self._exo = _exo
+        self.expiration = expiration
+        self.confirmation_id = confirmation_id
+        self.username = username
+        self.__dict__["__constructed"] = True
+        self.__assert__()
+        return
+
+    def __assert__(self):
+        if not self.__dict__["__constructed"] == True:
+            return
+
+        exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("change-password-confirmation", self)
+        exo.stackset.pop_unsafe("change-password-confirmation")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
+        return
+
+    def __setattr__(self, name, value):
+        self.__dict__[f"{name}"] = value
+        self.__assert__()
+        return
+
+
 class paging_control(object):
     _exo = None
     filt = ""
@@ -501,6 +679,61 @@ class context(object):
         exo.stackset.push_unsafe("context", self)
         (exo.context_is_locked().end_after_start().guarded_verify())
         exo.stackset.pop_unsafe("context")
+        exo.stackset.readable = r_snap
+        exo.stackset.changeable = c_snap
+        return
+
+    def __setattr__(self, name, value):
+        self.__dict__[f"{name}"] = value
+        self.__assert__()
+        return
+
+
+class stochasticity(object):
+    _exo = None
+    n_retries = 0
+    retries = False
+    n_octa = 0
+    octa = False
+    n_load = 0
+    load = False
+    n_store = 0
+    store = False
+
+    def __init__(self,
+                 _exo,
+                 n_retries=0,
+                 retries=False,
+                 n_octa=0,
+                 octa=False,
+                 n_load=0,
+                 load=False,
+                 n_store=0,
+                 store=False):
+        self.__dict__["__constructed"] = False
+        self._exo = _exo
+        self.n_retries = n_retries
+        self.retries = retries
+        self.n_octa = n_octa
+        self.octa = octa
+        self.n_load = n_load
+        self.load = load
+        self.n_store = n_store
+        self.store = store
+        self.__dict__["__constructed"] = True
+        self.__assert__()
+        return
+
+    def __assert__(self):
+        if not self.__dict__["__constructed"] == True:
+            return
+
+        exo = self._exo
+        r_snap = exo.stackset.readable
+        c_snap = exo.stackset.changeable
+        exo.stackset.push_unsafe("stochasticity", self)
+        (exo.stochasticity_non_zero_truth())
+        exo.stackset.pop_unsafe("stochasticity")
         exo.stackset.readable = r_snap
         exo.stackset.changeable = c_snap
         return
@@ -1008,10 +1241,14 @@ class galactus_account(object):
     unlocks_confirmed = 0
     flags_confirmed = 0
     unlocks = 0
+    unlocks_total = 0
     flags = 0
+    flags_total = 0
     unique = 0
+    unique_total = 0
     malicious = 0
-    lookups_new = 0
+    malicious_total = 0
+    lookups = 0
     lookups_total = 0
     tokens_earned_total = 0
     tokens_earned = 0
@@ -1036,10 +1273,14 @@ class galactus_account(object):
                  unlocks_confirmed=0,
                  flags_confirmed=0,
                  unlocks=0,
+                 unlocks_total=0,
                  flags=0,
+                 flags_total=0,
                  unique=0,
+                 unique_total=0,
                  malicious=0,
-                 lookups_new=0,
+                 malicious_total=0,
+                 lookups=0,
                  lookups_total=0,
                  tokens_earned_total=0,
                  tokens_earned=0,
@@ -1063,10 +1304,14 @@ class galactus_account(object):
         self.unlocks_confirmed = unlocks_confirmed
         self.flags_confirmed = flags_confirmed
         self.unlocks = unlocks
+        self.unlocks_total = unlocks_total
         self.flags = flags
+        self.flags_total = flags_total
         self.unique = unique
+        self.unique_total = unique_total
         self.malicious = malicious
-        self.lookups_new = lookups_new
+        self.malicious_total = malicious_total
+        self.lookups = lookups
         self.lookups_total = lookups_total
         self.tokens_earned_total = tokens_earned_total
         self.tokens_earned = tokens_earned
@@ -1187,6 +1432,7 @@ class StackSet:
         dict_put(stacks, "leaderboard", [])
         dict_put(stacks, "paging-control", [])
         dict_put(stacks, "context", [])
+        dict_put(stacks, "stochasticity", [])
         dict_put(stacks, "db-load-query", [])
         dict_put(stacks, "db-store-query", [])
         dict_put(stacks, "ilock-policy", [])
@@ -1803,7 +2049,10 @@ class Endo:
         self.add_many_to_event_set("@public-acct-manage", [
             "public-galactus-account-create",
             "public-galactus-account-destroy", "public-galactus-account-login",
-            "public-galactus-account-logout", "public-wallet-add"
+            "public-galactus-account-logout", "public-wallet-add",
+            "public-wallet-change", "public-password-forgot",
+            "public-password-reset", "public-email-confirm",
+            "public-email-change"
         ])
         self.add_many_to_event_set("@retry-prev-or-store-next", [
             "account-meters-stored", "galactus-store-error",
@@ -1858,6 +2107,16 @@ class Endo:
                  galactus_account_key_as_load().data_load())
             elif br_event == "public-wallet-add":
                 (exo.contextualize().wallet_as_load().data_load())
+            elif br_event == "public-password-forgot":
+                assert False
+            elif br_event == "public-password-reset":
+                assert False
+            elif br_event == "public-email-confirm":
+                assert False
+            elif br_event == "public-email-change":
+                assert False
+            elif br_event == "public-wallet-change":
+                assert False
             else:
                 assert False
 
@@ -1954,7 +2213,7 @@ class Endo:
             if br_event == "public-stakeables-list":
                 (exo.contextualize().stakeables_list().data_load())
             elif br_event == "public-stakeable-get":
-                (exo.contextualize().stakeable_get().data_load())
+                (exo.contextualize().stakeable_as_load().data_load())
             elif br_event == "public-stakeable-stake":
                 (exo.contextualize().stakeable_stake().data_load())
             elif br_event == "public-leaderboard-get":
@@ -2136,9 +2395,9 @@ class Endo:
             br_event = self.stackset.peek("event")
             self.stackset.reset_access()
             if br_event == "safety-tested":
-                (exo.backoff_reset().stakeable_as_store().
-                 galactus_account_malicious_meter().galactus_account_as_store(
-                 ).data_store())
+                (exo.backoff_reset().stakeable_as_store(
+                ).galactus_account_malicious_meter().
+                 galactus_account_meters_as_store().data_store())
             elif br_event == "safety-tested-anon":
                 (exo.backoff_reset().stakeable_as_store().data_store())
             else:
@@ -2587,10 +2846,14 @@ class Exo:
                                 unlocks_confirmed=0,
                                 flags_confirmed=0,
                                 unlocks=0,
+                                unlocks_total=0,
                                 flags=0,
+                                flags_total=0,
                                 unique=0,
+                                unique_total=0,
                                 malicious=0,
-                                lookups_new=0,
+                                malicious_total=0,
+                                lookups=0,
                                 lookups_total=0,
                                 tokens_earned_total=0,
                                 tokens_earned=0,
@@ -2606,7 +2869,8 @@ class Exo:
         ret = galactus_account(
             self, locked, api_key_expiration, last_request, api_key, referrer,
             referred, registration_date, unlocks_confirmed, flags_confirmed,
-            unlocks, flags, unique, malicious, lookups_new, lookups_total,
+            unlocks, unlocks_total, flags, flags_total, unique, unique_total,
+            malicious, malicious_total, lookups, lookups_total,
             tokens_earned_total, tokens_earned, tokens_deducted,
             tokens_deposited, wallet_confirmed, wallet_id, unsalted_password,
             salted_password, email, username)
@@ -2743,6 +3007,38 @@ class Exo:
         self.stackset.set_changeable(["context"])
         ret = context(self, locked, timestamp_end, timestamp_start, event)
         dstack = self.stackset.stacks["context"]
+        dstack.append(ret)
+        self.stackset.reset_access()
+        return self
+
+    def stochasticity_empty(self):
+        self.stackset.set_readable(["stochasticity", "boolean"])
+        self.stackset.set_changeable(["boolean"])
+        slen = self.stackset.stack_len("stochasticity")
+        self.stackset.push("boolean", slen == 0)
+        self.stackset.reset_access()
+        return self
+
+    def stochasticity_length(self):
+        self.stackset.set_changeable(["number"])
+        l = len(dict_get(self.stackset.stacks, "stochasticity"))
+        self.stackset.push("number", l)
+        self.stackset.reset_access()
+        return self
+
+    def stochasticity_create(self,
+                             n_retries=0,
+                             retries=False,
+                             n_octa=0,
+                             octa=False,
+                             n_load=0,
+                             load=False,
+                             n_store=0,
+                             store=False):
+        self.stackset.set_changeable(["stochasticity"])
+        ret = stochasticity(self, n_retries, retries, n_octa, octa, n_load,
+                            load, n_store, store)
+        dstack = self.stackset.stacks["stochasticity"]
         dstack.append(ret)
         self.stackset.reset_access()
         return self
@@ -3340,13 +3636,18 @@ class Exo:
 
     def context_log(self):
         exo = self
-        self.stackset.set_readable(["context"])
+        self.stackset.set_readable(["next-state", "context"])
         self.stackset.set_changeable([])
+        # We happen to use sqlite for logging as a convenience
+        # However, this verb is meant to abstract that detail away
+        # Which is why we build the query and we try to 'log'/insert the context (instead of using the *-as-store and data-store verbs)
+        # If the insert fails, we do not retry and instead trip an assert
         assert self.stackset.stack_len("context") > 0
         ctx = self.stackset.peek("context")
         ctx.timestamp_end = datetime.datetime.now()
         ctx.locked = True
         # TODO use db_engine_log to write context object
+        # TODO we should also write the failure type (load/store/test-safety) and the target-site (if any)
         self.endo.update_event("commited", None)
         self.stackset.reset_access()
         return self
@@ -3504,9 +3805,13 @@ class Exo:
                             if site_load_context == True:
                                 url = row[0]
                                 visits = row[1]
+                                assert visits >= 0
                                 unlocks = row[2]
+                                assert unlocks >= 0
                                 flags = row[3]
+                                assert flags >= 0
                                 stake_state = row[4]
+                                assert len(stake_state) > 0
                                 exo.site_create(unique=False,
                                                 url=url,
                                                 visits=visits,
@@ -3521,8 +3826,11 @@ class Exo:
                                 tokens_deposited = row[3]
                                 tokens_deducted = row[4]
                                 malicious = row[5]
+                                assert malicious >= 0
                                 unique = row[6]
-                                lookups_new = row[7]
+                                assert unique >= 0
+                                lookups = row[7]
+                                assert lookups >= 0
                                 exo.galactus_account_create(
                                     username=username,
                                     email=email,
@@ -3531,10 +3839,13 @@ class Exo:
                                     tokens_deducted=tokens_deducted,
                                     malicious=malicious,
                                     unique=unique,
-                                    lookups_new=lookups_new)
+                                    lookups=lookups)
                                 self.endo.update_event(
                                     "can-test-safety-personally", None)
 
+                    elif ev == "public-stakeable-get":
+                        rows = conn.execute(q)
+                        row = rows.first()
                     elif (ev == "public-site-unlock"
                           or ev == "public-site-flag"
                           or ev == "public-site-forget"):
@@ -3838,7 +4149,7 @@ class Exo:
         if s.unique == True:
             ga.unique = (ga.unique + 1)
 
-        ga.lookups_new = (ga.lookups_new + 1)
+        ga.lookups = (ga.lookups + 1)
         # We increment malicious in a different verb only after we talk to octahedron
         if ctx.event == "public-site-flag":
             ga.flags = (ga.flags + 1)
@@ -3858,7 +4169,7 @@ class Exo:
         if s.unique == True:
             ga.unique = (ga.unique + 1)
 
-        ga.lookups_new = (ga.lookups_new + 1)
+        ga.lookups = (ga.lookups + 1)
         # We increment malicious in a different verb only after we talk to octahedron
         if ctx.event == "public-site-safe":
             if s.classification == True:
@@ -3883,7 +4194,7 @@ class Exo:
                        galactus_account_table.c.tokens_deducted,
                        galactus_account_table.c.malicious,
                        galactus_account_table.c.unique,
-                       galactus_account_table.c.lookups_new)
+                       galactus_account_table.c.lookups)
         q = q.where(galactus_account_table.c.username == gaak)
         self.db_load_query_create(q=q)
         self.stackset.reset_access()
@@ -3972,6 +4283,28 @@ class Exo:
                      salted_password=gasp,
                      api_key=gaak,
                      email=gaem)
+        exo.db_store_query_create(q=q)
+        self.stackset.reset_access()
+        return self
+
+    def galactus_account_meters_as_store(self):
+        exo = self
+        self.stackset.set_readable(["galactus-account"])
+        self.stackset.set_changeable(["db-store-query"])
+        ga = self.stackset.peek("galactus-account")
+        gaak = ga.api_key
+        gaf = ga.flags
+        gaul = ga.unlocks
+        gau = ga.unique
+        gam = ga.malicious
+        galn = ga.lookups
+        q = sql.update(galactus_account_table)
+        q = q.where(galactus_account_table.c.api_key == gaak)
+        q = q.values(flags=gaf,
+                     unlocks=gaul,
+                     unique=gau,
+                     malicious=gam,
+                     lookups=galn)
         exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
@@ -4148,11 +4481,25 @@ class Exo:
         s = self.stackset.peek("site")
         ss = s.stake_state
         sv = s.visits
-        su = s.unlocks
+        sul = s.unlocks
         sf = s.flags
         su = s.url
-        q = sql.insert(site_table)
-        q = q.values(stake_state=ss, visits=sv, unlocks=su, flags=sf, url=su)
+        # sqlalchemy only exposes on_conflict_do_update as part of pgsql or sqlite
+        # because we have a test mode and non-test-mode, we need to use one or the other explicitly
+        q = None
+        if galactus_test_mode == True:
+            q = sqlite.insert(site_table)
+        else:
+            q = pgsql.insert(site_table)
+
+        q = q.values(stake_state=ss, visits=sv, unlocks=sul, flags=sf, url=su)
+        q = q.on_conflict_do_update(index_elements=["url"],
+                                    set_={
+                                        "stake_state": ss,
+                                        "visits": sv,
+                                        "unlocks": sul,
+                                        "flags": sf
+                                    })
         exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
@@ -4163,6 +4510,24 @@ class Exo:
         self.stackset.set_changeable([])
         s = self.stackset.peek("site")
         s.visits = (s.visits + 1)
+        self.stackset.reset_access()
+        return self
+
+    def stakeable_flags_increment(self):
+        exo = self
+        self.stackset.set_readable(["site"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
+        s.flags = (s.flags + 1)
+        self.stackset.reset_access()
+        return self
+
+    def stakeable_unlocks_increment(self):
+        exo = self
+        self.stackset.set_readable(["site"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("site")
+        s.unlocks = (s.unlocks + 1)
         self.stackset.reset_access()
         return self
 
@@ -4194,15 +4559,6 @@ class Exo:
         self.stackset.set_readable(["page"])
         self.stackset.set_changeable(["site"])
         # TODO this is dead code and should be removed
-        xyz = 123
-        self.stackset.reset_access()
-        return self
-
-    def stakeable_get(self):
-        exo = self
-        self.stackset.set_readable(["site", "page"])
-        self.stackset.set_changeable(["site"])
-        # TODO dead code and should be removed
         xyz = 123
         self.stackset.reset_access()
         return self
@@ -4264,15 +4620,24 @@ class Exo:
 
     def octahedron_test_site(self):
         exo = self
-        self.stackset.set_readable(["event", "site"])
+        self.stackset.set_readable(["stochasticity", "event", "site"])
         self.stackset.set_changeable([])
         evlast = self.stackset.peek("event")
+        stoch = self.stackset.peek("stochasticity")
         if not evlast == "backoff-period":
             # We have been told to keep re/trying
-            if stochastify_octahedron == True:
+            if (not stoch == None and stoch.octa == True):
                 s = self.stackset.peek("site")
                 s.classification = random.choice([True, False])
-                event = random.choice(["safety-tested", "test-safety-error"])
+                if stoch.retries == True:
+                    event = random.choice(
+                        ["safety-tested", "test-safety-error"])
+                else:
+                    event = "safety-tested"
+
+                if event == "test-safety-error":
+                    stoch.n_octa = (stoch.n_octa + 1)
+
                 exo.endo.update_event(event, None)
             else:
                 assert False
@@ -4431,6 +4796,28 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def stochasticity_non_zero_truth(self):
+        exo = self
+        self.stackset.set_readable(["stochasticity"])
+        self.stackset.set_changeable([])
+        s = self.stackset.peek("stochasticity")
+        if not s.store:
+            assert s.n_store == 0
+        elif not s.load:
+            assert s.n_load == 0
+        elif not s.octa:
+            assert s.n_octa == 0
+        elif not s.azero:
+            assert s.n_azero == 0
+        elif not s.price:
+            assert s.n_price == 0
+        elif not s.retries:
+            # TODO the idea is to guarantee that under stochastic conditions, retries eventually always succeed
+            assert s.n_retries == 0
+
+        self.stackset.reset_access()
+        return self
+
     def respond(self):
         exo = self
         self.stackset.set_readable([
@@ -4441,14 +4828,18 @@ class Exo:
         ctx = self.stackset.peek("context")
         res = self.stackset.peek("response")
         if ctx.event == "public-galactus-account-create":
-            if res.status == 201:
+            if res.status == 500:
+                res.body = {"message": "internal error"}
+            elif res.status == 201:
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
             elif res.status == 409:
                 res.body = {"message": "account already exists"}
 
         elif ctx.event == "public-galactus-account-destroy":
-            if res.status == 201:
+            if res.status == 500:
+                res.body = {"key": pub_key}
+            elif res.status == 201:
                 res.body = {"key": pub_key}
                 # Override default status from the `changes-commited -> ready` transition
                 res.status = 200
@@ -4464,7 +4855,9 @@ class Exo:
 
         elif ctx.event == "public-galactus-account-login":
             ga = self.stackset.peek("galactus-account")
-            if ga == None:
+            if res.status == 500:
+                res.body = {"key": pub_key}
+            elif ga == None:
                 # TODO bad password, return public-key
                 res.body = {"key": pub_key}
                 res.status = 401
@@ -4483,7 +4876,9 @@ class Exo:
 
         elif ctx.event == "public-galactus-account-logout":
             ga = self.stackset.peek("galactus-account")
-            if ga == None:
+            if res.status == 500:
+                res.body = {"key": pub_key}
+            elif ga == None:
                 # TODO bad password, return public-key
                 res.status = 401
                 res.body = {"key": pub_key}
@@ -4503,6 +4898,10 @@ class Exo:
                 # We got here because our octahedron requests failed
                 # Instead of obscuring this, we let the client decide how to present this
                 res.body = {"malicious": "unknown"}
+            elif res.status == 500:
+                # We got here because something else failed (i.e. status is already 500)
+                # We reflect this in our status, but return the classification anyway
+                res.body = {"malicious": s.classification}
             else:
                 res.status = 200
                 res.body = {"malicious": s.classification}
@@ -4538,6 +4937,15 @@ def validate_username_common(username):
     return username
 
 
+def validate_url_common(url):
+    l = len(url)
+    # TODO validate character set
+    if l < 1:
+        raise ValueError("url too short")
+
+    return url
+
+
 class UserRegistration(BaseModel):
     address: str
     email: str
@@ -4557,6 +4965,15 @@ class UserRegistration(BaseModel):
         return validate_username_common(username)
 
 
+class SiteSafety(BaseModel):
+    url: str
+    key: str
+
+    @validator("url")
+    def validate_url(cls, url):
+        return validate_url_common(password)
+
+
 class ApiKey(BaseModel):
     key: str
 
@@ -4565,6 +4982,10 @@ class UserCreds(BaseModel):
     key: str
     username: str
     email: str
+
+
+class SafetyResponse(BaseModel):
+    malicious: Any
 
 
 class UserDeletion(BaseModel):
@@ -4762,6 +5183,42 @@ def http_user_logout(user_lo: UserLogout, res_bptr: fapi.Response) -> ApiKey:
     rsp = rsp_ls[0]
     res_bptr.status_code = rsp.status
     response = ApiKey(key=pub_key)
+    return response
+
+
+@app.post("/malicious_p")
+@app.post("/malicious-p")
+def http_malicious_p(site_safety: SiteSafety,
+                     res_bptr: fapi.Response) -> SafetyResponse:
+    url = site_safety.url
+    key = site_safety.key
+    if len(key) == 0:
+        key = pub_key
+
+    if len(url) > 256:
+        # Truncate all urls to 256 bytes
+        url = url[:256]
+
+    exo.galactus_account_create(username='placeholder',
+                                api_key=key,
+                                salted_password='placeholder')
+    exo.site_create(url=url)
+    try:
+        endo.send("public-site-safe")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    res_bptr.status_code = rsp.status
+    mal = dict_get(rsp.body, "malicious")
+    response = SafetyResponse(malicious=mal)
     return response
 
 
