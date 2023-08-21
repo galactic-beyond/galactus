@@ -4971,7 +4971,7 @@ class SiteSafety(BaseModel):
 
     @validator("url")
     def validate_url(cls, url):
-        return validate_url_common(password)
+        return validate_url_common(url)
 
 
 class ApiKey(BaseModel):
@@ -5203,6 +5203,7 @@ def http_malicious_p(site_safety: SiteSafety,
                                 api_key=key,
                                 salted_password='placeholder')
     exo.site_create(url=url)
+    exo.stochasticity_create(octa=True)
     try:
         endo.send("public-site-safe")
 
@@ -5212,6 +5213,7 @@ def http_malicious_p(site_safety: SiteSafety,
         logging.error("Caught internal error", exc_info=True)
         response = {"error": e}
         res_bptr.status_code = 500
+        exo.stackset.pop_unsafe("stochasticity")
         return response
 
     rsp_ls = endo.stackset.stacks["response"]
@@ -5219,6 +5221,7 @@ def http_malicious_p(site_safety: SiteSafety,
     res_bptr.status_code = rsp.status
     mal = dict_get(rsp.body, "malicious")
     response = SafetyResponse(malicious=mal)
+    exo.stackset.pop_unsafe("stochasticity")
     return response
 
 
