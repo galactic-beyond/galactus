@@ -181,20 +181,31 @@ nix-shell shell.nix
 uvicorn core:app --host  $YOUR_IP --port 80 --workers 1
 ```
 
-If you do not specify an IP, it will run on 127.0.0.1 and will only be visible to localhost-clients.
-If you want a different port, you have to specify it -- the uvicorn default is 8000. And the workers
-should never be increased unless we have tested and verified that more workers is stable. (So far,
-the only thing that changes with multiple workers and a shared DB, is that if 2 workers try to create
-the same user-account they will race, and 1 will create it successfully while the other will fail to
-do so in a non-retryable way because of a primary-key-conflict -- a single worker-prevents this server-side,
-but users can still perceive a race client-side, if the client show the username as being available and **another**
-client completes registration before the current one does). Another possible race-condition is when the
-same user visits a 2 sites from 2 clients and those arrive to galactus at the same time: with multiple
-workers (but not with only 1 worker), this can result (unlikely but possibly) in
-the meters getting incremented only once instead of twice. There are ways to prevent and mitigate this
-(i.e. enclosing each ready-exit and ready-entry in a serializable transaction, or making such updates
-diff/log/queue-oriented, and having a periodic worker reduce the diff-log into a single value), but
-for now we are going with the simple solution of running one worker until it becomes a problem.
+If you do not specify an IP, it will run on 127.0.0.1 and will only be visible
+to localhost-clients.  If you want a different port, you have to specify it --
+the uvicorn default is 8000. And the workers should never be increased unless
+we have tested and verified that more workers is stable. (So far, the only
+thing that changes with multiple workers and a shared DB, is that if 2 workers
+try to create the same user-account they will race, and 1 will create it
+successfully while the other will fail to do so in a non-retryable way because
+of a primary-key-conflict -- a single worker-prevents this server-side, but
+users can still perceive a race client-side, if the client show the username as
+being available and **another** client completes registration before the
+current one does). Another possible race-condition is when the same user visits
+a 2 sites from 2 clients and those arrive to galactus at the same time: with
+multiple workers (but not with only 1 worker), this can result (unlikely but
+possibly) in the meters getting incremented only once instead of twice. There
+are ways to prevent and mitigate this (i.e. enclosing each ready-exit and
+ready-entry in a serializable transaction, or making such updates
+diff/log/queue-oriented, and having a periodic worker reduce the diff-log into
+a single value -- see the reference to Bloom per Alvaro below), but for now we
+are going with the simple solution of running one worker until it becomes a
+problem.  When it becomes a problem (and we move to multiple workers), we will
+use the error-log as a source/queue from which we can backfill those increments
+(which means that our statistics act as a _sample_ of all data-points, and
+that sample can be improved retroactively because of how sums work -- think of
+it as the resolution on a streaming video, it can increase/decrease dynamically
+as a function of load and available throughput). 
 
 # Credits/Acknowledgements/Related-Work
 
@@ -220,6 +231,8 @@ for now we are going with the simple solution of running one worker until it bec
 * https://plato.stanford.edu/entries/logic-hybrid/
 * https://lamport.azurewebsites.net/tla/book-02-08-08.pdf
 * The Art of Computer Systems Performance Analysis by Raj Jain (Chapters 24 to 29)
+* https://arxiv.org/abs/1901.01930 (Keeping CALM: When Distributed Consistency is Easy by Alvaro)
+* https://dsf.berkeley.edu/papers/cidr11-bloom.pdf (Consistency Analysis in Bloom by Alvaro)
 * https://en.wikipedia.org/wiki/Exponential\_backoff
 * https://martinfowler.com/bliki/FluentInterface.html
 * Thinking Forth by Leo Brodie (reread Chapters 2 and 8 in retrospective context)
