@@ -101,7 +101,7 @@ transitions are identifiable by the `@` that prefixes their event-name. The
 event-name text is written in the _direction of the transition_ (i.e. if the transition
 points downwards, then the name must be read from top to bottom).
 
-![](./imgs/galactus-flow-2.png)
+![](./imgs/galactus-flow-3.png)
 
 At a glance, you can tell that only admin-events may write to the db directly,
 while all others must pass through a load-phase (usually to autheticate or to
