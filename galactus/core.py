@@ -5941,7 +5941,7 @@ def http_admin_site_get(site_get: AdminSiteGet,
                                 api_key=api_key)
     exo.site_create(url=url)
     try:
-        endo.send("admin-site-get")
+        endo.send("admin-stakeable-get")
 
     except Exception as e:
         endo.reset_machine()
@@ -5985,7 +5985,7 @@ def http_site_get(site_get: SiteGet, res_bptr: fapi.Response) -> SiteInfo:
                                 api_key=api_key)
     exo.site_create(url=url)
     try:
-        endo.send("public-site-get")
+        endo.send("public-stakeable-get")
 
     except Exception as e:
         endo.reset_machine()
