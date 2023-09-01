@@ -125,8 +125,7 @@ change_password_confirmation_table = sql.Table(
     sql.Column("username", sql.String), sql.Column("expiration", sql.DateTime),
     sql.Column("confirmation_id", sql.String, primary_key=True))
 deleted_galactus_account_table = sql.Table(
-    "deleted_account", db_metadata_main,
-    sql.Column("username", sql.String, primary_key=True),
+    "deleted_account", db_metadata_main, sql.Column("username", sql.String),
     sql.Column("registration_date", sql.DateTime),
     sql.Column("deletion_date", sql.DateTime))
 galactus_account_table = sql.Table(
@@ -138,6 +137,7 @@ galactus_account_table = sql.Table(
     sql.Column("referred", sql.Integer), sql.Column("referrer", sql.String),
     sql.Column("wallet_id", sql.String),
     sql.Column("wallet_confirmed", sql.Boolean),
+    sql.Column("tokens_withdrawn", sql.Integer),
     sql.Column("tokens_deposited", sql.Integer),
     sql.Column("tokens_deducted", sql.Integer),
     sql.Column("tokens_deposited_total", sql.Integer),
@@ -239,14 +239,16 @@ class fuzzer(RuleBasedStateMachine):
     @rule(target=credentials,
           email=consumes(emails),
           username=consumes(usernames),
-          password=passwords)
-    def mk_acct(self, email, username, password):
+          password=passwords,
+          wallet_id=domains)
+    def mk_acct(self, email, username, password, wallet_id):
         exo = self.exo
         endo = self.endo
         exo.galactus_account_create(username=username,
                                     unsalted_password=password,
                                     email=email,
-                                    api_key=pub_key)
+                                    api_key=pub_key,
+                                    wallet_id=wallet_id)
         endo.send("public-galactus-account-create")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
@@ -266,8 +268,12 @@ class fuzzer(RuleBasedStateMachine):
     def mk_del_acct(self, credential, email, password):
         exo = self.exo
         endo = self.endo
-        username = credential[0]
-        self.mk_old_acct_impl(credential, email, password, True)
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        self.mk_old_acct_impl(c, email, password, True)
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
         new_key = dict_get(rsp.body, "key")
@@ -516,6 +522,19 @@ class fuzzer(RuleBasedStateMachine):
         else:
             assert False
 
+        exo.galactus_account_create(username=username,
+                                    api_key=key,
+                                    salted_password='placeholder',
+                                    locked=True)
+        endo.send("public-galactus-account-get")
+        # TODO change this test to verify visit-increment for user-object
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False
+
         return url
 
     @rule(target=tested_urls, url=urls, credential=credentials)
@@ -553,7 +572,7 @@ class fuzzer(RuleBasedStateMachine):
         rsp = self.get_site_admin_calm(url)
         stats1 = rsp.body
         assert dict_get(stats1, "visits") > 0
-        self.test_site(url, credential)
+        self.test_site_calm(url, credential)
         rsp = self.get_site_admin_calm(url)
         stats2 = rsp.body
         assert dict_get(stats2, "visits") > dict_get(stats1, "visits")
@@ -1335,6 +1354,7 @@ class octa_verdict(object):
 class site(object):
     _exo = None
     url = ""
+    canonical_flag_unlock = 0
     flags = 0
     unlocks = 0
     visits = 0
@@ -1345,6 +1365,7 @@ class site(object):
     def __init__(self,
                  _exo,
                  url="",
+                 canonical_flag_unlock=0,
                  flags=0,
                  unlocks=0,
                  visits=0,
@@ -1354,6 +1375,7 @@ class site(object):
         self.__dict__["__constructed"] = False
         self._exo = _exo
         self.url = url
+        self.canonical_flag_unlock = canonical_flag_unlock
         self.flags = flags
         self.unlocks = unlocks
         self.visits = visits
@@ -1387,6 +1409,8 @@ class site(object):
 class allow_block_list_item(object):
     _exo = None
     block = False
+    insert_time = datetime.datetime.now()
+    tokens_staked = 0
     url = ""
     user_registration_date = datetime.datetime.now()
     username = ""
@@ -1394,12 +1418,16 @@ class allow_block_list_item(object):
     def __init__(self,
                  _exo,
                  block=False,
+                 insert_time=datetime.datetime.now(),
+                 tokens_staked=0,
                  url="",
                  user_registration_date=datetime.datetime.now(),
                  username=""):
         self.__dict__["__constructed"] = False
         self._exo = _exo
         self.block = block
+        self.insert_time = insert_time
+        self.tokens_staked = tokens_staked
         self.url = url
         self.user_registration_date = user_registration_date
         self.username = username
@@ -1490,6 +1518,7 @@ class galactus_account(object):
     lookups_total = 0
     tokens_earned_total = 0
     tokens_earned = 0
+    tokens_withdrawn = 0
     tokens_deducted = 0
     tokens_deposited = 0
     wallet_confirmed = False
@@ -1523,6 +1552,7 @@ class galactus_account(object):
                  lookups_total=0,
                  tokens_earned_total=0,
                  tokens_earned=0,
+                 tokens_withdrawn=0,
                  tokens_deducted=0,
                  tokens_deposited=0,
                  wallet_confirmed=False,
@@ -1555,6 +1585,7 @@ class galactus_account(object):
         self.lookups_total = lookups_total
         self.tokens_earned_total = tokens_earned_total
         self.tokens_earned = tokens_earned
+        self.tokens_withdrawn = tokens_withdrawn
         self.tokens_deducted = tokens_deducted
         self.tokens_deposited = tokens_deposited
         self.wallet_confirmed = wallet_confirmed
@@ -3176,6 +3207,7 @@ class Exo:
                                 lookups_total=0,
                                 tokens_earned_total=0,
                                 tokens_earned=0,
+                                tokens_withdrawn=0,
                                 tokens_deducted=0,
                                 tokens_deposited=0,
                                 wallet_confirmed=False,
@@ -3186,16 +3218,15 @@ class Exo:
                                 email="",
                                 username=""):
         self.stackset.set_changeable(["galactus-account"])
-        ret = galactus_account(self, locked, api_key_expiration, last_request,
-                               api_key, referrer, referred, registration_date,
-                               unlocks_confirmed, flags_confirmed, unlocks,
-                               unlocks_total, flags, flags_total, unique,
-                               unique_total, malicious, malicious_total,
-                               lookups, lookups_total, tokens_earned_total,
-                               tokens_earned, tokens_deducted,
-                               tokens_deposited, wallet_confirmed, wallet_id,
-                               new_unsalted_password, unsalted_password,
-                               salted_password, email, username)
+        ret = galactus_account(
+            self, locked, api_key_expiration, last_request, api_key, referrer,
+            referred, registration_date, unlocks_confirmed, flags_confirmed,
+            unlocks, unlocks_total, flags, flags_total, unique, unique_total,
+            malicious, malicious_total, lookups, lookups_total,
+            tokens_earned_total, tokens_earned, tokens_withdrawn,
+            tokens_deducted, tokens_deposited, wallet_confirmed, wallet_id,
+            new_unsalted_password, unsalted_password, salted_password, email,
+            username)
         dstack = self.stackset.stacks["galactus-account"]
         dstack.append(ret)
         self.stackset.reset_access()
@@ -3246,6 +3277,7 @@ class Exo:
 
     def site_create(self,
                     url="",
+                    canonical_flag_unlock=0,
                     flags=0,
                     unlocks=0,
                     visits=0,
@@ -3253,8 +3285,8 @@ class Exo:
                     unique=False,
                     classification=None):
         self.stackset.set_changeable(["site"])
-        ret = site(self, url, flags, unlocks, visits, stake_state, unique,
-                   classification)
+        ret = site(self, url, canonical_flag_unlock, flags, unlocks, visits,
+                   stake_state, unique, classification)
         dstack = self.stackset.stacks["site"]
         dstack.append(ret)
         self.stackset.reset_access()
@@ -3749,8 +3781,9 @@ class Exo:
         self.stackset.set_changeable(["boolean"])
         ga = self.stackset.peek("galactus-account")
         gawi = ga.wallet_id
-        # TODO make this test actually work in post-MVP future
         b = True
+        b = (b and not gawi == None)
+        b = (b and isinstance(gawi, str))
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
         return self
@@ -4130,7 +4163,7 @@ class Exo:
                                     malicious_total=row.malicious_total,
                                     unlocks=row.unlocks,
                                     flags=row.flags,
-                                    unlocked_total=row.unlocked_total,
+                                    unlocks_total=row.unlocks_total,
                                     flags_total=row.flags_total,
                                     unlocks_confirmed=row.unlocks_confirmed,
                                     flags_confirmed=row.flags_confirmed,
@@ -4324,22 +4357,27 @@ class Exo:
 
             except exc.DisconnectionError as e:
                 # Retryable
+                print(e)
                 self.endo.update_event("galactus-load-error", None)
 
             except exc.TimeoutError as e:
                 # Retryable
+                print(e)
                 self.endo.update_event("galactus-load-error", None)
 
             except exc.ArgumentError as e:
                 # Non Retryable
+                print(e)
                 self.endo.update_event("backoff-period", None)
 
             except exc.CompileError as e:
                 # Non Retryable
+                print(e)
                 self.endo.update_event("backoff-period", None)
 
-            except exc.SQLAlchemyError:
+            except exc.SQLAlchemyError as e:
                 # Non Retryable
+                print(e)
                 self.endo.update_event("backoff-period", None)
 
         self.stackset.reset_access()
@@ -4393,22 +4431,27 @@ class Exo:
 
             except exc.DisconnectionError as e:
                 # Retryable
+                print(e)
                 self.endo.update_event("galactus-store-error", None)
 
             except exc.TimeoutError as e:
                 # Retryable
+                print(e)
                 self.endo.update_event("galactus-store-error", None)
 
             except exc.ArgumentError as e:
                 # Non Retryable
+                print(e)
                 self.endo.update_event("backoff-period", None)
 
             except exc.CompileError as e:
                 # Non Retryable
+                print(e)
                 self.endo.update_event("backoff-period", None)
 
-            except exc.SQLAlchemyError:
+            except exc.SQLAlchemyError as e:
                 # Non Retryable
+                print(e)
                 self.endo.update_event("backoff-period", None)
 
         self.stackset.reset_access()
@@ -4447,6 +4490,12 @@ class Exo:
             self.stackset.pop("galactus-account")
             self.stackset.pop("site")
             self.stackset.pop("site")
+        elif event == "admin-galactus-account-get":
+            self.stackset.pop("galactus-account")
+            self.stackset.pop("galactus-account")
+        elif event == "public-galactus-account-get":
+            self.stackset.pop("galactus-account")
+            self.stackset.pop("galactus-account")
         else:
             assert False
 
@@ -4793,15 +4842,59 @@ class Exo:
         self.stackset.set_readable(["galactus-account"])
         self.stackset.set_changeable(["db-store-query"])
         ga = self.stackset.peek("galactus-account")
-        gaun = ga.username
-        gasp = ga.salted_password
         gaak = ga.api_key
         gaem = ga.email
+        gaf = ga.flags
+        gaft = ga.flags_total
+        galt = ga.lookups_total
+        gal = ga.lookups
+        galr = ga.last_request
+        gamt = ga.malicious_total
+        gam = ga.malicious
+        gard = ga.registration_date
+        garfrr = ga.referrer
+        garfrd = ga.referred
+        gasp = ga.salted_password
+        gatdp = ga.tokens_deposited
+        gatdd = ga.tokens_deducted
+        gate = ga.tokens_earned
+        gatet = ga.tokens_earned_total
+        gatw = ga.tokens_withdrawn
+        gau = ga.unique
+        gauc = ga.unlocks_confirmed
+        gaul = ga.unlocks
+        gaun = ga.username
+        gaut = ga.unique_total
+        gault = ga.unlocks_total
+        gawc = ga.wallet_confirmed
+        gawi = ga.wallet_id
         q = sql.insert(galactus_account_table)
         q = q.values(username=gaun,
                      salted_password=gasp,
                      api_key=gaak,
-                     email=gaem)
+                     email=gaem,
+                     wallet_confirmed=gawc,
+                     wallet_id=gawi,
+                     tokens_deposited=gatdp,
+                     tokens_deducted=gatdd,
+                     tokens_withdrawn=gatw,
+                     tokens_earned=gate,
+                     tokens_earned_total=gatet,
+                     lookups_total=galt,
+                     lookups=gal,
+                     malicious_total=gamt,
+                     malicious=gam,
+                     unique_total=gaut,
+                     unique=gau,
+                     flags_total=gaft,
+                     flags=gaf,
+                     unlocks_total=gault,
+                     unlocks=gaul,
+                     unlocks_confirmed=gauc,
+                     registration_date=gard,
+                     last_request=galr,
+                     referrer=garfrr,
+                     referred=garfrd)
         exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
@@ -5421,7 +5514,7 @@ class Exo:
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
             elif res.status == 409:
-                res.body = {"message": "account already exists"}
+                res.body = {"error_message": "account already exists"}
 
         elif ctx.event == "public-galactus-account-destroy":
             if res.status == 500:
@@ -5493,31 +5586,35 @@ class Exo:
                 res.status = 200
                 res.body = {"malicious": s.classification}
 
-        elif ctx.event == "galactus-account-get":
+        elif ctx.event == "public-galactus-account-get":
             # If email is undefined we show only public members
             if res.status == 404:
                 res.body = {"error_message": "no such account"}
             elif res.status == 200:
                 ga = self.stackset.peek("galactus-account")
-                if ga.token_earned == None:
-                    assert ga.email == None
+                if ga.email == "":
+                    assert ga.email == ""
                     res.body = {
                         "username": ga.username,
                         "referred": ga.referred,
                         "lookups": ga.lookups,
-                        "lookups-total": ga.lookups_total
+                        "lookups_total": ga.lookups_total,
+                        "email": "",
+                        "tokens_earned": -1,
+                        "tokens_earned_total": -1,
+                        "wallet_id": ""
                     }
                 else:
-                    assert not ga.email == None
+                    assert not ga.email == ""
                     res.body = {
                         "username": ga.username,
-                        "email": ga.email,
-                        "tokens-earned": ga.tokens_earned,
-                        "tokens-earned-total": ga.tokens_earned_total,
-                        "wallet-id": ga.wallet_id,
                         "referred": ga.referred,
                         "lookups": ga.lookups,
-                        "lookups-total": ga.lookups_total
+                        "lookups_total": ga.lookups_total,
+                        "email": ga.email,
+                        "tokens_earned": ga.tokens_earned,
+                        "tokens_earned_total": ga.tokens_earned_total,
+                        "wallet_id": ga.wallet_id
                     }
 
         elif ctx.event == "admin-galactus-account-get":
@@ -5656,6 +5753,52 @@ class UserCreds(BaseModel):
     email: str
 
 
+class UserInfo(BaseModel):
+    username: str
+    email: str
+    referred: int
+    lookups: int
+    lookups_total: int
+    tokens_earned: int
+    tokens_earned_total: int
+    wallet_id: str
+
+
+class AdminUserInfo(BaseModel):
+    username: str
+    email: str
+    referred: int
+    lookups: int
+    lookups_total: int
+    tokens_earned: int
+    tokens_earned_total: int
+    wallet_id: str
+    unique: int
+    unique_total: int
+    malicious: int
+    malicious_total: int
+    unlocks: int
+    unlocks_total: int
+    flags: int
+    flags_total: int
+    flags_confirmed: int
+    unlocks_confirmed: int
+
+
+class AdminSiteInfo(BaseModel):
+    url: str
+    visits: int
+    canonical_flag_unlock: int
+    unlocks: int
+    flags: int
+    stake_state: str
+
+
+class SiteInfo(BaseModel):
+    url: str
+    stake_state: str
+
+
 class SafetyResponse(BaseModel):
     malicious: Any
 
@@ -5731,6 +5874,34 @@ class UserBcaddrReset(BaseModel):
         return validate_password_common(password)
 
 
+class UserGet(BaseModel):
+    key: str
+    username: str
+
+    @validator("username")
+    def validate_username(cls, username):
+        return validate_username_common(username)
+
+
+class SiteGet(BaseModel):
+    key: str
+    url: str
+
+
+class AdminUserGet(BaseModel):
+    key: str
+    username: str
+
+    @validator("username")
+    def validate_username(cls, username):
+        return validate_username_common(username)
+
+
+class AdminSiteGet(BaseModel):
+    key: str
+    url: str
+
+
 endo = Endo()
 endo.initialize_machine()
 exo.set_endo(endo)
@@ -5747,7 +5918,7 @@ app = fapi.FastAPI()
 def validation_exception_handler(req, exc):
     exc_json = json.loads(exc.json())
     res = {"error_message": []}
-    res_msg = res["message"]
+    res_msg = res["error_message"]
     for e in exc_json:
         loc_ls = e["loc"]
         msg = (loc_ls[-1] + f" {e['msg']}")
@@ -5756,7 +5927,202 @@ def validation_exception_handler(req, exc):
     return JSONResponse(res, status_code=422)
 
 
-alt_create_responses = {"409": {"message": "account already exists"}}
+alt_create_responses = {"409": {"error_message": "account already exists"}}
+
+
+@app.post("/admin-site-get", responses=alt_create_responses)
+def http_admin_site_get(site_get: AdminSiteGet,
+                        res_bptr: fapi.Response) -> AdminSiteInfo:
+    url = site_get.url
+    api_key = site_get.key
+    exo.galactus_account_create(username='placeholder',
+                                unsalted_password='placeholder',
+                                email='placeholder',
+                                api_key=api_key)
+    exo.site_create(url=url)
+    try:
+        endo.send("admin-site-get")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    if rsp.status == 201:
+        rurl = dict_get(rsp.body, "url")
+        rvisits = dict_get(rsp.body, "visits")
+        runlocks = dict_get(rsp.body, "unlocks")
+        rflags = dict_get(rsp.body, "flags")
+        rcanonical_flag_unlock = dict_get(rsp.body, "canonical_flag_unlock")
+        rstake_state = dict_get(rsp.body, "stake_state")
+        response = AdminSiteInfo(url=rurl,
+                                 visits=rvisits,
+                                 unlocks=runlocks,
+                                 flags=rflags,
+                                 canonical_flag_unlock=rcanonical_flag_unlock,
+                                 stake_state=rstake_state)
+    elif rsp.status == 409:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False
+
+    res_bptr.status_code = rsp.status
+    return response
+
+
+@app.post("/site-get", responses=alt_create_responses)
+def http_site_get(site_get: SiteGet, res_bptr: fapi.Response) -> SiteInfo:
+    url = site_get.url
+    api_key = site_get.key
+    exo.galactus_account_create(username='placeholder',
+                                unsalted_password='placeholder',
+                                email='placeholder',
+                                api_key=api_key)
+    exo.site_create(url=url)
+    try:
+        endo.send("public-site-get")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    if rsp.status == 201:
+        rurl = dict_get(rsp.body, "url")
+        rstake_state = dict_get(rsp.body, "stake_state")
+        response = SiteInfo(url=rurl, stake_state=rstake_state)
+    elif rsp.status == 409:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False
+
+    res_bptr.status_code = rsp.status
+    return response
+
+
+@app.post("/user-get", responses=alt_create_responses)
+def http_user_get(user_get: UserGet, res_bptr: fapi.Response) -> UserInfo:
+    username = user_get.username
+    api_key = user_get.key
+    exo.galactus_account_create(username=username,
+                                unsalted_password='placeholder',
+                                email='placeholder',
+                                api_key=api_key)
+    try:
+        endo.send("public-galactus-account-get")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    if rsp.status == 200:
+        rusername = dict_get(rsp.body, "username")
+        remail = dict_get(rsp.body, "email")
+        rreferred = dict_get(rsp.body, "referred")
+        rlookups = dict_get(rsp.body, "lookups")
+        rlookups_total = dict_get(rsp.body, "lookups_total")
+        rtokens_earned = dict_get(rsp.body, "tokens_earned")
+        rtokens_earned_total = dict_get(rsp.body, "tokens_earned_total")
+        rwallet_id = dict_get(rsp.body, "wallet_id")
+        response = UserInfo(username=rusername,
+                            email=remail,
+                            referred=rreferred,
+                            lookups=rlookups,
+                            lookups_total=rlookups_total,
+                            tokens_earned=rtokens_earned,
+                            tokens_earned_total=rtokens_earned_total,
+                            wallet_id=rwallet_id)
+    elif rsp.status == 409:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False
+
+    res_bptr.status_code = rsp.status
+    return response
+
+
+@app.post("/admin-user-get", responses=alt_create_responses)
+def http_admin_user_get(user_get: AdminUserGet,
+                        res_bptr: fapi.Response) -> AdminUserInfo:
+    username = user_get.username
+    api_key = user_get.key
+    exo.galactus_account_create(username=username,
+                                unsalted_password='placeholder',
+                                email='placeholder',
+                                api_key=api_key)
+    try:
+        endo.send("admin-galactus-account-get")
+
+    except Exception as e:
+        endo.reset_machine()
+        endo.send("ignite")
+        logging.error("Caught internal error", exc_info=True)
+        response = {"error": e}
+        res_bptr.status_code = 500
+        return response
+
+    rsp_ls = endo.stackset.stacks["response"]
+    rsp = rsp_ls[0]
+    if rsp.status == 201:
+        rusername = dict_get(rsp.body, "username")
+        remail = dict_get(rsp.body, "email")
+        rreferred = dict_get(rsp.body, "referred")
+        rlookups = dict_get(rsp.body, "lookups")
+        rlookups_total = dict_get(rsp.body, "lookups_total")
+        rtokens_earned = dict_get(rsp.body, "tokens_earned")
+        rtokens_earned_total = dict_get(rsp.body, "tokens_earned_total")
+        rwallet_id = dict_get(rsp.body, "wallet_id")
+        runique = dict_get(rsp.body, "unique")
+        runique_total = dict_get(rsp.body, "unique_total")
+        rmalicious = dict_get(rsp.body, "malicious")
+        rmalicious_total = dict_get(rsp.body, "malicious_total")
+        runlocks = dict_get(rsp.body, "unlocks")
+        runlocks_total = dict_get(rsp.body, "unlocks_total")
+        rflags = dict_get(rsp.body, "flags")
+        rflags_total = dict_get(rsp.body, "flags_total")
+        rflags_confirmed = dict_get(rsp.body, "flags_confirmed")
+        runlocks_confirmed = dict_get(rsp.body, "unlocks_confirmed")
+        response = AdminUserInfo(username=rusername,
+                                 email=remail,
+                                 referred=rreferred,
+                                 lookups=rlookups,
+                                 lookups_total=rlookups_total,
+                                 tokens_earned=rtokens_earned,
+                                 tokens_earned_total=rtokens_earned_total,
+                                 wallet_id=rwallet_id,
+                                 unique=runique,
+                                 unique_total=runique_total,
+                                 malicious=rmalicious,
+                                 unlocks=runlocks,
+                                 flags=rflags,
+                                 malicious_total=rmalicious_total,
+                                 unlocks_total=runlocks_total,
+                                 flags_total=rflags_total,
+                                 unlocks_confirmed=runlocks_confirmed,
+                                 flags_confirmed=rflags_confirmed)
+    elif rsp.status == 409:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False
+
+    res_bptr.status_code = rsp.status
+    return response
 
 
 @app.post("/user-create", responses=alt_create_responses)
@@ -5796,10 +6162,10 @@ def http_user_create(user_reg: UserRegistration,
 
 alt_delete_responses = {
     "401": {
-        "message": "bad credentials"
+        "error_message": "bad credentials"
     },
     "404": {
-        "message": "no such account"
+        "error_message": "no such account"
     }
 }
 
@@ -5832,7 +6198,7 @@ def http_user_delete(user_reg: UserDeletion,
     return response
 
 
-alt_login_responses = {"401": {"message": "bad credentials"}}
+alt_login_responses = {"401": {"error_message": "bad credentials"}}
 
 
 @app.post("/user-login", responses=alt_login_responses)
@@ -5864,7 +6230,7 @@ def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     return response
 
 
-alt_logout_responses = {"401": {"message": "bad credentials"}}
+alt_logout_responses = {"401": {"error_message": "bad credentials"}}
 
 
 @app.post("/user-logout", responses=alt_logout_responses)
