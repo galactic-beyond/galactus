@@ -54,7 +54,7 @@ def verify_password(phash, pw):
     except argon2.exceptions.InvalidHash:
         # Bad Hash, Probably Data Corruption
         # TODO maybe notify admin
-        assert False
+        assert False, "invalid-hash"
 
     except argon2.exceptions.VerificationError:
         # Other Unspecified Reasons for Failure
@@ -80,7 +80,7 @@ db_path_main = "sqlite+pysqlite:///:memory:"
 db_path_logs = "sqlite+pysqlite:///:memory:"
 if not galactus_test_mode == True:
     # Overwrite test-path with non-test, pg path for main, and sqlite on-disk path for logs.
-    assert False
+    assert False, "implement-postgress-stuff"
     db_path_main = "sqlite+pysqlite:///:memory:"
     db_path_logs = "sqlite+pysqlite:///:memory:"
 
@@ -165,6 +165,7 @@ site_table = sql.Table("stakeable_site", db_metadata_main,
                        sql.Column("visits", sql.Integer),
                        sql.Column("unlocks", sql.Integer),
                        sql.Column("flags", sql.Integer),
+                       sql.Column("canonical_flag_unlock", sql.Integer),
                        sql.Column("url", sql.String, primary_key=True),
                        sql.Column("stake_state", sql.String))
 user_allow_block_table = sql.Table(
@@ -188,7 +189,7 @@ class fuzzer(RuleBasedStateMachine):
     usernames = Bundle("usernames")
     keys = Bundle("keys")
     passwords = Bundle("passwords")
-    urls = Bundle("urls")
+    untested_urls = Bundle("urls")
     tested_urls = Bundle("tested_urls")
     domains = Bundle("domains")
     # Tuple of username,email,password,key
@@ -228,7 +229,7 @@ class fuzzer(RuleBasedStateMachine):
     def add_password(self, password):
         return password
 
-    @rule(target=urls, url=g_urls())
+    @rule(target=untested_urls, url=g_urls())
     def add_url(self, url):
         return url
 
@@ -259,7 +260,7 @@ class fuzzer(RuleBasedStateMachine):
             tmp = 1
             return None
         else:
-            assert False
+            assert False, rsp.status
 
     @rule(target=credentials,
           credential=consumes(deleted_credentials),
@@ -307,7 +308,179 @@ class fuzzer(RuleBasedStateMachine):
                 assert False
 
         else:
-            assert False
+            assert False, rsp.status
+
+    @rule(credential=credentials)
+    def get_old_user_admin(self, credential):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        api_key = c[3]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=admin_key)
+        endo.send("admin-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False, rsp.status
+
+    @rule(credential=credentials)
+    def get_old_user_admin_bad_pw(self, credential):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        api_key = c[3]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=pub_key)
+        endo.send("admin-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False, rsp.status
+
+    @rule(credential=credentials)
+    def get_old_user_priv(self, credential):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        api_key = c[3]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=api_key)
+        endo.send("public-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False, rsp.status
+
+    @rule(credential=credentials)
+    def get_old_user_pub(self, credential):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        api_key = c[3]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=pub_key)
+        endo.send("public-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False, rsp.status
+
+    @rule(username=usernames)
+    def get_new_user_admin(self, username):
+        exo = self.exo
+        endo = self.endo
+        if username == None:
+            return
+
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=admin_key)
+        endo.send("admin-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 404:
+            assert True
+        else:
+            assert False, rsp.status
+
+    @rule(username=usernames)
+    def get_new_user_admin_bad_pw(self, username):
+        exo = self.exo
+        endo = self.endo
+        if username == None:
+            return
+
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=pub_key)
+        endo.send("admin-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 404:
+            assert True
+        else:
+            assert False, rsp.status
+
+    @rule(username=usernames)
+    def get_new_user_pub(self, username):
+        exo = self.exo
+        endo = self.endo
+        if username == None:
+            return
+
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=pub_key)
+        endo.send("public-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 404:
+            assert True
+        elif rsp.status == 409:
+            assert False, rsp.status
+        else:
+            assert False, rsp.status
+
+    @rule(credential=credentials, username=usernames)
+    def get_new_user_priv(self, credential, username):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+        elif username == None:
+            return
+
+        api_key = c[3]
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=api_key)
+        endo.send("public-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 404:
+            assert True
+        elif rsp.status == 409:
+            assert False, rsp.status
+        else:
+            assert False, rsp.status
 
     @rule(credential=credentials, email=emails, password=passwords)
     def mk_old_acct(self, credential, email, password):
@@ -330,11 +503,11 @@ class fuzzer(RuleBasedStateMachine):
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
         if rsp.status == 201:
-            assert False
+            assert False, rsp.status
         elif rsp.status == 409:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
     @rule(username=usernames, password=passwords)
     def rm_new_acct(self, username, password):
@@ -349,7 +522,7 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 404:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
     @rule(target=deleted_credentials, credential=consumes(credentials))
     def rm_old_acct(self, credential):
@@ -371,7 +544,7 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 200:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
         return c
 
@@ -394,7 +567,7 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 200:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
     @rule(credential=credentials, wallet_id=domains)
     def change_bcaddr_old_acct(self, credential, wallet_id):
@@ -416,7 +589,7 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 201:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
     @rule(target=credentials,
           credential=consumes(credentials),
@@ -443,7 +616,7 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 201:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
         return nc
 
@@ -497,7 +670,9 @@ class fuzzer(RuleBasedStateMachine):
                                     salted_password='placeholder')
         endo.send("public-galactus-account-logout")
 
-    @rule(target=tested_urls, url=urls, credential=credentials)
+    @rule(target=tested_urls,
+          url=consumes(untested_urls),
+          credential=credentials)
     def test_site_calm(self, url, credential):
         exo = self.exo
         endo = self.endo
@@ -520,7 +695,7 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 200:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
         exo.galactus_account_create(username=username,
                                     api_key=key,
@@ -533,11 +708,11 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 200:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
         return url
 
-    @rule(target=tested_urls, url=urls, credential=credentials)
+    @rule(url=consumes(untested_urls), credential=credentials)
     def test_site(self, url, credential):
         exo = self.exo
         endo = self.endo
@@ -569,15 +744,15 @@ class fuzzer(RuleBasedStateMachine):
         if url == None:
             return None
 
-        rsp = self.get_site_admin_calm(url)
+        rsp = self.get_seen_site_admin_calm(url)
         stats1 = rsp.body
         assert dict_get(stats1, "visits") > 0
         self.test_site_calm(url, credential)
-        rsp = self.get_site_admin_calm(url)
+        rsp = self.get_seen_site_admin_calm(url)
         stats2 = rsp.body
         assert dict_get(stats2, "visits") > dict_get(stats1, "visits")
 
-    @rule(target=tested_urls, url=urls)
+    @rule(target=tested_urls, url=consumes(untested_urls))
     def test_site_anon_calm(self, url):
         exo = self.exo
         endo = self.endo
@@ -594,11 +769,12 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 200:
             assert True
         else:
-            assert False
+            assert False, rsp.status
 
         return url
 
-    def get_site_admin_calm(self, url):
+    @rule(url=tested_urls)
+    def get_seen_site_admin_calm(self, url):
         exo = self.exo
         endo = self.endo
         exo.galactus_account_create(username='username',
@@ -611,7 +787,25 @@ class fuzzer(RuleBasedStateMachine):
         if rsp.status == 200:
             assert True
         else:
-            assert False
+            assert False, rsp.status
+
+        return rsp
+
+    @rule(url=untested_urls)
+    def get_unseen_site_admin_calm(self, url):
+        exo = self.exo
+        endo = self.endo
+        exo.galactus_account_create(username='username',
+                                    api_key=admin_key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
+        endo.send("admin-stakeable-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 404:
+            assert True
+        else:
+            assert False, rsp.status
 
         return rsp
 
@@ -622,7 +816,7 @@ class fuzzer(RuleBasedStateMachine):
 
         self.test_site_anon_calm(url)
 
-    @rule(target=tested_urls, url=urls)
+    @rule(url=consumes(untested_urls))
     def test_site_anon(self, url):
         exo = self.exo
         endo = self.endo
@@ -634,7 +828,6 @@ class fuzzer(RuleBasedStateMachine):
         exo.stochasticity_create(octa=True, retries=True)
         endo.send("public-site-safe")
         exo.stackset.pop_unsafe("stochasticity")
-        return url
 
     @rule(url=tested_urls)
     def retest_site_anon(self, url):
@@ -682,11 +875,21 @@ def account_response_sane(bod):
     b = True
     b = (b and not bod == None)
     b = (b and is_member("username", keys))
+    b = (b and not dict_get(bod, "username") == None)
     b = (b and is_member("email", keys))
+    b = (b and not dict_get(bod, "email") == None)
     b = (b and is_member("wallet_id", keys))
+    b = (b and not dict_get(bod, "wallet_id") == None)
     b = (b and is_member("referred", keys))
+    b = (b and not dict_get(bod, "referred") == None)
     b = (b and is_member("lookups", keys))
+    b = (b and not dict_get(bod, "lookups") == None)
     b = (b and is_member("lookups_total", keys))
+    b = (b and not dict_get(bod, "lookups_total") == None)
+    b = (b and is_member("tokens_earned", keys))
+    b = (b and not dict_get(bod, "tokens_earned") == None)
+    b = (b and is_member("tokens_earned_total", keys))
+    b = (b and not dict_get(bod, "tokens_earned_total") == None)
     return b
 
 
@@ -697,19 +900,26 @@ def admin_account_response_sane(bod):
     keys = response_body_keys(bod)
     b = True
     b = (b and account_response_sane(bod))
-    b = (b and is_member("tokens_earned", keys))
-    b = (b and is_member("tokens_earned_total", keys))
-    b = (b and is_member("wallet_id", keys))
     b = (b and is_member("unique", keys))
+    b = (b and not dict_get(bod, "unique") == None)
     b = (b and is_member("unique_total", keys))
+    b = (b and not dict_get(bod, "unique_total") == None)
     b = (b and is_member("malicious", keys))
+    b = (b and not dict_get(bod, "malicious") == None)
     b = (b and is_member("malicious_total", keys))
+    b = (b and not dict_get(bod, "malicious_total") == None)
     b = (b and is_member("unlocks", keys))
+    b = (b and not dict_get(bod, "unlocks") == None)
     b = (b and is_member("unlocks_total", keys))
+    b = (b and not dict_get(bod, "unlocks_total") == None)
     b = (b and is_member("flags", keys))
+    b = (b and not dict_get(bod, "flags") == None)
     b = (b and is_member("flags_total", keys))
+    b = (b and not dict_get(bod, "flags_total") == None)
     b = (b and is_member("flags_confirmed", keys))
+    b = (b and not dict_get(bod, "flags_confirmed") == None)
     b = (b and is_member("unlocks_confirmed", keys))
+    b = (b and not dict_get(bod, "unlocks_confirmed") == None)
     return b
 
 
@@ -722,7 +932,9 @@ def stakeable_response_sane(bod):
     b = (b and not bod == None)
     b = (b and len(keys) == 1)
     b = (b and is_member("url", keys))
+    b = (b and not dict_get(bod, "url") == None)
     b = (b and is_member("stake_state", keys))
+    b = (b and not dict_get(bod, "stake_state") == None)
     return b
 
 
@@ -1394,6 +1606,7 @@ class site(object):
         r_snap = exo.stackset.readable
         c_snap = exo.stackset.changeable
         exo.stackset.push_unsafe("site", self)
+        (exo.canonical_flag_unlock_valid().verify())
         (exo.stake_state_valid().verify())
         exo.stackset.pop_unsafe("site")
         exo.stackset.readable = r_snap
@@ -1729,7 +1942,7 @@ class StackSet:
 
     def push(self, stackname, elem):
         allowed = is_member(stackname, self.changeable)
-        assert allowed
+        assert allowed, (stackname, self.changeable)
         stack = self.stacks[stackname]
         stack.append(elem)
         return elem
@@ -1741,7 +1954,7 @@ class StackSet:
 
     def pop(self, stackname):
         allowed = is_member(stackname, self.changeable)
-        assert allowed
+        assert allowed, (stackname, self.changeable)
         stack = self.stacks[stackname]
         ret = None
         if len(stack) > 0:
@@ -1759,14 +1972,14 @@ class StackSet:
 
     def stack_len(self, stackname):
         allowed2 = is_member(stackname, self.readable)
-        assert allowed2
+        assert allowed2, (stackname, self.readable)
         stack = self.stacks[stackname]
         ret = len(stack)
         return ret
 
     def peek(self, stackname):
         allowed = is_member(stackname, self.readable)
-        assert allowed
+        assert allowed, (stackname, self.readable)
         stack = self.stacks[stackname]
         slen = len(stack)
         pos = (slen - 1)
@@ -1778,13 +1991,13 @@ class StackSet:
 
     def peek_list(self, stackname):
         allowed = is_member(stackname, self.readable)
-        assert allowed
+        assert allowed, (stackname, self.readable)
         stack = self.stacks[stackname]
         return stack
 
     def peek_n(self, stackname, pos):
         allowed = is_member(stackname, self.readable)
-        assert allowed
+        assert allowed, (stackname, self.readable)
         stack = self.stacks[stackname]
         slen = len(stack)
         max_pos = (slen - 1)
@@ -2283,7 +2496,7 @@ class Endo:
 
     def add_transition(self, start, end, event):
         exists = dict_2get(self.transitions, start, event)
-        assert exists == None
+        assert exists == None, (start, event)
         dict_put(self.valid_events, event, True)
         dict_2put(self.transitions, start, event, end)
         dict_2put(self.heatmap, start, end, 0)
@@ -4212,6 +4425,23 @@ class Exo:
                                             stake_state=stake_state)
                             self.endo.update_event("admin-site-loaded", None)
 
+                    elif ev == "public-stakeable-get":
+                        ga = self.stackset.peek("galactus-account")
+                        key = ga.api_key
+                        rows = None
+                        row = None
+                        if row == None:
+                            self.endo.update_event("admin-site-not-loaded",
+                                                   None)
+                        elif not row == None:
+                            url = row.url
+                            stake_state = row.stake_state
+                            assert len(stake_state) > 0
+                            exo.site_create(unique=False,
+                                            url=url,
+                                            stake_state=stake_state)
+                            self.endo.update_event("admin-site-loaded", None)
+
                     elif ev == "public-site-safe":
                         rows = conn.execute(q)
                         row = rows.first()
@@ -4319,9 +4549,6 @@ class Exo:
                             self.endo.update_event(
                                 "galactus-account-password-changeable", None)
 
-                    elif ev == "public-stakeable-get":
-                        rows = conn.execute(q)
-                        row = rows.first()
                     elif (ev == "public-site-unlock"
                           or ev == "public-site-flag"
                           or ev == "public-site-forget"):
@@ -4353,7 +4580,7 @@ class Exo:
                             self.endo.update_event("stakeable-exists", None)
 
                     else:
-                        assert False
+                        assert False, ev
 
             except exc.DisconnectionError as e:
                 # Retryable
@@ -4731,7 +4958,7 @@ class Exo:
                 ga.malicious = (ga.malicious + 1)
 
         else:
-            assert False
+            assert False, ctx.event
 
         self.stackset.reset_access()
         return self
@@ -5102,6 +5329,24 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def canonical_flag_unlock_valid(self):
+        exo = self
+        self.stackset.set_readable(["site"])
+        self.stackset.set_changeable(["boolean"])
+        s = self.stackset.peek("site")
+        scfu = s.canonical_flag_unlock
+        if scfu == -1:
+            self.stackset.push("boolean", True)
+        elif scfu == 0:
+            self.stackset.push("boolean", True)
+        elif scfu == 1:
+            self.stackset.push("boolean", True)
+        else:
+            self.stackset.push("boolean", False)
+
+        self.stackset.reset_access()
+        return self
+
     def stakeable_pend(self):
         exo = self
         self.stackset.set_readable(["site"])
@@ -5129,6 +5374,7 @@ class Exo:
         sv = s.visits
         sul = s.unlocks
         sf = s.flags
+        scfu = s.canonical_flag_unlock
         su = s.url
         # sqlalchemy only exposes on_conflict_do_update as part of pgsql or sqlite
         # because we have a test mode and non-test-mode, we need to use one or the other explicitly
@@ -5142,6 +5388,7 @@ class Exo:
         q = q.on_conflict_do_update(index_elements=["url"],
                                     set_={
                                         "stake_state": ss,
+                                        "canonical_flag_unlock": scfu,
                                         "visits": sv,
                                         "unlocks": sul,
                                         "flags": sf
@@ -5194,7 +5441,8 @@ class Exo:
         su = s.url
         q = sql.select(site_table.c.url, site_table.c.visits,
                        site_table.c.unlocks, site_table.c.flags,
-                       site_table.c.stake_state)
+                       site_table.c.stake_state,
+                       site_table.c.canonical_flag_unlock)
         q = q.where(site_table.c.url == su)
         self.db_load_query_create(q=q)
         self.stackset.reset_access()
@@ -5286,7 +5534,7 @@ class Exo:
 
                 exo.endo.update_event(event, None)
             else:
-                assert False
+                assert False, stoch
 
         self.stackset.reset_access()
         return self
@@ -5393,7 +5641,7 @@ class Exo:
                 # We handle form-validation at fapi-layer, but here we validate conflicts
                 b = (b and not bod == None)
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "public-galactus-account-destroy":
             # Should return public key
@@ -5406,7 +5654,7 @@ class Exo:
                 # We handle form-validation at fapi-layer, but here we validate conflicts
                 b = (b and not bod == None)
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "public-galactus-account-login":
             # Should return API key and email and username
@@ -5418,7 +5666,7 @@ class Exo:
                 b = (b and not bod == None)
                 b = (b and pub_key_response_sane(bod))
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "public-galactus-account-logout":
             # Should return public key
@@ -5430,7 +5678,7 @@ class Exo:
                 b = (b and not bod == None)
                 b = (b and pub_key_response_sane(bod))
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "public-galactus-account-get":
             # Should return public info about galactus account or non-existence
@@ -5439,7 +5687,7 @@ class Exo:
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "admin-galactus-account-get":
             if s == 200:
@@ -5447,7 +5695,7 @@ class Exo:
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "admin-stakeable-get":
             if s == 200:
@@ -5455,7 +5703,15 @@ class Exo:
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
             else:
-                assert False
+                assert False, s
+
+        elif ctx.event == "public-stakeable-get":
+            if s == 200:
+                b = (b and stakeable_response_sane(bod))
+            elif s == 404:
+                b = (b and error_response_sane(bod))
+            else:
+                assert False, s
 
         elif (ctx.event == "public-password-change"
               or ctx.event == "public-wallet-change"):
@@ -5464,13 +5720,13 @@ class Exo:
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
             else:
-                assert False
+                assert False, s
 
         elif ctx.event == "public-site-safe":
             b = (b and not bod == None)
             b = (b and malicious_response_sane(bod))
         else:
-            assert False
+            assert False, ctx.event
 
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
@@ -5531,7 +5787,7 @@ class Exo:
                 # Maybe add message
                 res.body = {"key": pub_key}
             else:
-                assert False
+                assert False, res.status
 
         elif ctx.event == "public-galactus-account-login":
             ga = self.stackset.peek("galactus-account")
@@ -5618,7 +5874,7 @@ class Exo:
                     }
 
         elif ctx.event == "admin-galactus-account-get":
-            # Admin gets all info, including flags/unlocks/unique/malcious and related
+            # Admin gets all info, including flags/unlocks/unique/malicious and related
             if res.status == 404:
                 res.body = {"error_message": "no such account"}
             elif res.status == 200:
@@ -5636,7 +5892,7 @@ class Exo:
                     "unique": ga.unique,
                     "unique_total": ga.unique_total,
                     "malicious": ga.malicious,
-                    "malicious_total": ga.malcious_total,
+                    "malicious_total": ga.malicious_total,
                     "unlocks": ga.unlocks,
                     "unlocks_total": ga.unlocks_total,
                     "flags": ga.flags,
@@ -5676,7 +5932,7 @@ class Exo:
                 res.body = {"key": ga.api_key}
 
         else:
-            assert False
+            assert False, ctx.event
 
         # Doing this triggers the response tests -- helps if accidentally bypass the above if-tree because of unhandled status-code
         res.locked = True
@@ -5928,9 +6184,25 @@ def validation_exception_handler(req, exc):
 
 
 alt_create_responses = {"409": {"error_message": "account already exists"}}
+alt_acct_get_responses = {
+    "404": {
+        "error_message": "not such account"
+    },
+    "401": {
+        "error_message": "bad credential"
+    }
+}
+alt_site_get_responses = {
+    "404": {
+        "error_message": "not such site"
+    },
+    "401": {
+        "error_message": "bad credential"
+    }
+}
 
 
-@app.post("/admin-site-get", responses=alt_create_responses)
+@app.post("/admin-site-get", responses=alt_site_get_responses)
 def http_admin_site_get(site_get: AdminSiteGet,
                         res_bptr: fapi.Response) -> AdminSiteInfo:
     url = site_get.url
@@ -5953,7 +6225,7 @@ def http_admin_site_get(site_get: AdminSiteGet,
 
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
-    if rsp.status == 201:
+    if rsp.status == 200:
         rurl = dict_get(rsp.body, "url")
         rvisits = dict_get(rsp.body, "visits")
         runlocks = dict_get(rsp.body, "unlocks")
@@ -5966,16 +6238,16 @@ def http_admin_site_get(site_get: AdminSiteGet,
                                  flags=rflags,
                                  canonical_flag_unlock=rcanonical_flag_unlock,
                                  stake_state=rstake_state)
-    elif rsp.status == 409:
+    elif (rsp.status == 401 or rsp.status == 404):
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     else:
-        assert False
+        assert False, rsp.status
 
     res_bptr.status_code = rsp.status
     return response
 
 
-@app.post("/site-get", responses=alt_create_responses)
+@app.post("/site-get", responses=alt_site_get_responses)
 def http_site_get(site_get: SiteGet, res_bptr: fapi.Response) -> SiteInfo:
     url = site_get.url
     api_key = site_get.key
@@ -5997,20 +6269,20 @@ def http_site_get(site_get: SiteGet, res_bptr: fapi.Response) -> SiteInfo:
 
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
-    if rsp.status == 201:
+    if rsp.status == 200:
         rurl = dict_get(rsp.body, "url")
         rstake_state = dict_get(rsp.body, "stake_state")
         response = SiteInfo(url=rurl, stake_state=rstake_state)
-    elif rsp.status == 409:
+    elif rsp.status == 401:
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     else:
-        assert False
+        assert False, rsp.status
 
     res_bptr.status_code = rsp.status
     return response
 
 
-@app.post("/user-get", responses=alt_create_responses)
+@app.post("/user-get", responses=alt_acct_get_responses)
 def http_user_get(user_get: UserGet, res_bptr: fapi.Response) -> UserInfo:
     username = user_get.username
     api_key = user_get.key
@@ -6048,16 +6320,18 @@ def http_user_get(user_get: UserGet, res_bptr: fapi.Response) -> UserInfo:
                             tokens_earned=rtokens_earned,
                             tokens_earned_total=rtokens_earned_total,
                             wallet_id=rwallet_id)
-    elif rsp.status == 409:
+    elif rsp.status == 404:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    elif rsp.status == 401:
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     else:
-        assert False
+        assert False, rsp.status
 
     res_bptr.status_code = rsp.status
     return response
 
 
-@app.post("/admin-user-get", responses=alt_create_responses)
+@app.post("/admin-user-get", responses=alt_acct_get_responses)
 def http_admin_user_get(user_get: AdminUserGet,
                         res_bptr: fapi.Response) -> AdminUserInfo:
     username = user_get.username
@@ -6116,10 +6390,12 @@ def http_admin_user_get(user_get: AdminUserGet,
                                  flags_total=rflags_total,
                                  unlocks_confirmed=runlocks_confirmed,
                                  flags_confirmed=rflags_confirmed)
-    elif rsp.status == 409:
+    elif rsp.status == 404:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    elif rsp.status == 401:
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     else:
-        assert False
+        assert False, rsp.status
 
     res_bptr.status_code = rsp.status
     return response
@@ -6154,7 +6430,7 @@ def http_user_create(user_reg: UserRegistration,
     elif rsp.status == 409:
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     else:
-        assert False
+        assert False, rsp.status
 
     res_bptr.status_code = rsp.status
     return response
