@@ -791,6 +791,24 @@ class fuzzer(RuleBasedStateMachine):
 
         return rsp
 
+    @rule(url=tested_urls)
+    def get_seen_site_pub_calm(self, url):
+        exo = self.exo
+        endo = self.endo
+        exo.galactus_account_create(username='username',
+                                    api_key=pub_key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
+        endo.send("public-stakeable-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+        else:
+            assert False, rsp.status
+
+        return rsp
+
     @rule(url=untested_urls)
     def get_unseen_site_admin_calm(self, url):
         exo = self.exo
@@ -800,6 +818,24 @@ class fuzzer(RuleBasedStateMachine):
                                     salted_password='placeholder')
         exo.site_create(url=url)
         endo.send("admin-stakeable-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 404:
+            assert True
+        else:
+            assert False, rsp.status
+
+        return rsp
+
+    @rule(url=untested_urls)
+    def get_unseen_site_pub_calm(self, url):
+        exo = self.exo
+        endo = self.endo
+        exo.galactus_account_create(username='username',
+                                    api_key=pub_key,
+                                    salted_password='placeholder')
+        exo.site_create(url=url)
+        endo.send("public-stakeable-get")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
         if rsp.status == 404:
@@ -4426,10 +4462,10 @@ class Exo:
                             self.endo.update_event("admin-site-loaded", None)
 
                     elif ev == "public-stakeable-get":
-                        ga = self.stackset.peek("galactus-account")
-                        key = ga.api_key
                         rows = None
                         row = None
+                        rows = conn.execute(q)
+                        row = rows.first()
                         if row == None:
                             self.endo.update_event("admin-site-not-loaded",
                                                    None)
