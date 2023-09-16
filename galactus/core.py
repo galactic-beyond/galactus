@@ -135,8 +135,10 @@ galactus_account_table = sql.Table(
     sql.Column("api_key", sql.String),
     sql.Column("api_key_expiration", sql.DateTime),
     sql.Column("referred", sql.Integer), sql.Column("referrer", sql.String),
-    sql.Column("wallet_id", sql.String),
-    sql.Column("wallet_confirmed", sql.Boolean),
+    sql.Column("azero_wallet_id", sql.String),
+    sql.Column("pdot_wallet_id", sql.String),
+    sql.Column("azero_wallet_confirmed", sql.Boolean),
+    sql.Column("pdot_wallet_confirmed", sql.Boolean),
     sql.Column("tokens_withdrawn", sql.Integer),
     sql.Column("tokens_deposited", sql.Integer),
     sql.Column("tokens_deducted", sql.Integer),
@@ -241,15 +243,18 @@ class fuzzer(RuleBasedStateMachine):
           email=consumes(emails),
           username=consumes(usernames),
           password=passwords,
-          wallet_id=domains)
-    def mk_acct(self, email, username, password, wallet_id):
+          azero_wallet_id=domains,
+          pdot_wallet_id=domains)
+    def mk_acct(self, email, username, password, azero_wallet_id,
+                pdot_wallet_id):
         exo = self.exo
         endo = self.endo
         exo.galactus_account_create(username=username,
                                     unsalted_password=password,
                                     email=email,
                                     api_key=pub_key,
-                                    wallet_id=wallet_id)
+                                    azero_wallet_id=azero_wallet_id,
+                                    pdot_wallet_id=pdot_wallet_id)
         endo.send("public-galactus-account-create")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
@@ -569,8 +574,11 @@ class fuzzer(RuleBasedStateMachine):
         else:
             assert False, rsp.status
 
-    @rule(credential=credentials, wallet_id=domains)
-    def change_bcaddr_old_acct(self, credential, wallet_id):
+    @rule(credential=credentials,
+          azero_wallet_id=domains,
+          pdot_wallet_id=domains)
+    def change_azpdaddr_old_acct(self, credential, azero_wallet_id,
+                                 pdot_wallet_id):
         exo = self.exo
         endo = self.endo
         c = credential
@@ -582,7 +590,8 @@ class fuzzer(RuleBasedStateMachine):
         exo.galactus_account_create(username=username,
                                     api_key=pub_key,
                                     unsalted_password=password,
-                                    wallet_id=wallet_id)
+                                    azero_wallet_id=azero_wallet_id,
+                                    pdot_wallet_id=pdot_wallet_id)
         endo.send("public-wallet-change")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
@@ -914,8 +923,10 @@ def account_response_sane(bod):
     b = (b and not dict_get(bod, "username") == None)
     b = (b and is_member("email", keys))
     b = (b and not dict_get(bod, "email") == None)
-    b = (b and is_member("wallet_id", keys))
-    b = (b and not dict_get(bod, "wallet_id") == None)
+    b = (b and is_member("azero_wallet_id", keys))
+    b = (b and not dict_get(bod, "azero_wallet_id") == None)
+    b = (b and is_member("pdot_wallet_id", keys))
+    b = (b and not dict_get(bod, "pdot_wallet_id") == None)
     b = (b and is_member("referred", keys))
     b = (b and not dict_get(bod, "referred") == None)
     b = (b and is_member("lookups", keys))
@@ -1004,9 +1015,13 @@ def login_response_sane(bod):
     b = (b and is_member("key", keys))
     b = (b and is_member("username", keys))
     b = (b and is_member("email", keys))
+    b = (b and is_member("pdot_wallet_id", keys))
+    b = (b and is_member("azero_wallet_id", keys))
     b = (b and isinstance(bod["key"], str))
     b = (b and isinstance(bod["username"], str))
     b = (b and isinstance(bod["email"], str))
+    b = (b and isinstance(bod["pdot_wallet_id"], str))
+    b = (b and isinstance(bod["azero_wallet_id"], str))
     return b
 
 
@@ -1770,8 +1785,10 @@ class galactus_account(object):
     tokens_withdrawn = 0
     tokens_deducted = 0
     tokens_deposited = 0
-    wallet_confirmed = False
-    wallet_id = ""
+    azero_wallet_confirmed = False
+    pdot_wallet_confirmed = False
+    pdot_wallet_id = ""
+    azero_wallet_id = ""
     new_unsalted_password = ""
     unsalted_password = ""
     salted_password = ""
@@ -1804,8 +1821,10 @@ class galactus_account(object):
                  tokens_withdrawn=0,
                  tokens_deducted=0,
                  tokens_deposited=0,
-                 wallet_confirmed=False,
-                 wallet_id="",
+                 azero_wallet_confirmed=False,
+                 pdot_wallet_confirmed=False,
+                 pdot_wallet_id="",
+                 azero_wallet_id="",
                  new_unsalted_password="",
                  unsalted_password="",
                  salted_password="",
@@ -1837,8 +1856,10 @@ class galactus_account(object):
         self.tokens_withdrawn = tokens_withdrawn
         self.tokens_deducted = tokens_deducted
         self.tokens_deposited = tokens_deposited
-        self.wallet_confirmed = wallet_confirmed
-        self.wallet_id = wallet_id
+        self.azero_wallet_confirmed = azero_wallet_confirmed
+        self.pdot_wallet_confirmed = pdot_wallet_confirmed
+        self.pdot_wallet_id = pdot_wallet_id
+        self.azero_wallet_id = azero_wallet_id
         self.new_unsalted_password = new_unsalted_password
         self.unsalted_password = unsalted_password
         self.salted_password = salted_password
@@ -1856,7 +1877,7 @@ class galactus_account(object):
         r_snap = exo.stackset.readable
         c_snap = exo.stackset.changeable
         exo.stackset.push_unsafe("galactus-account", self)
-        (exo.have_wallet_id().verify())
+        (exo.have_wallet_ids().verify())
         (exo.
          galactus_account_is_locked().have_either_salted_or_unsalted_password(
          ).have_api_key().andify().guarded_verify())
@@ -3459,8 +3480,10 @@ class Exo:
                                 tokens_withdrawn=0,
                                 tokens_deducted=0,
                                 tokens_deposited=0,
-                                wallet_confirmed=False,
-                                wallet_id="",
+                                azero_wallet_confirmed=False,
+                                pdot_wallet_confirmed=False,
+                                pdot_wallet_id="",
+                                azero_wallet_id="",
                                 new_unsalted_password="",
                                 unsalted_password="",
                                 salted_password="",
@@ -3473,7 +3496,8 @@ class Exo:
             unlocks, unlocks_total, flags, flags_total, unique, unique_total,
             malicious, malicious_total, lookups, lookups_total,
             tokens_earned_total, tokens_earned, tokens_withdrawn,
-            tokens_deducted, tokens_deposited, wallet_confirmed, wallet_id,
+            tokens_deducted, tokens_deposited, azero_wallet_confirmed,
+            pdot_wallet_confirmed, pdot_wallet_id, azero_wallet_id,
             new_unsalted_password, unsalted_password, salted_password, email,
             username)
         dstack = self.stackset.stacks["galactus-account"]
@@ -4024,15 +4048,18 @@ class Exo:
         self.stackset.reset_access()
         return self
 
-    def have_wallet_id(self):
+    def have_wallet_ids(self):
         exo = self
         self.stackset.set_readable(["galactus-account"])
         self.stackset.set_changeable(["boolean"])
         ga = self.stackset.peek("galactus-account")
-        gawi = ga.wallet_id
+        gazwi = ga.azero_wallet_id
+        gadwi = ga.pdot_wallet_id
         b = True
-        b = (b and not gawi == None)
-        b = (b and isinstance(gawi, str))
+        b = (b and not gazwi == None)
+        b = (b and not gadwi == None)
+        b = (b and isinstance(gazwi, str))
+        b = (b and isinstance(gadwi, str))
         self.stackset.push("boolean", b)
         self.stackset.reset_access()
         return self
@@ -4344,13 +4371,17 @@ class Exo:
                             key_exp = row.api_key_expiration
                             username = row.username
                             email = row.email
+                            pdot_wallet_id = row.pdot_wallet_id
+                            azero_wallet_id = row.azero_wallet_id
                             exo.galactus_account_create(
                                 salted_password=phash,
                                 api_key=key,
                                 api_key_expiration=key_exp,
                                 username=username,
                                 email=email,
-                                locked=True)
+                                locked=True,
+                                pdot_wallet_id=pdot_wallet_id,
+                                azero_wallet_id=azero_wallet_id)
                             self.endo.update_event(
                                 "galactus-account-can-login", None)
                         elif row == None:
@@ -4402,7 +4433,8 @@ class Exo:
                                     tokens_earned=row.tokens_earned,
                                     tokens_earned_total=row.
                                     tokens_earned_total,
-                                    wallet_id=row.wallet_id,
+                                    azero_wallet_id=row.azero_wallet_id,
+                                    pdot_wallet_id=row.pdot_wallet_id,
                                     referred=row.referred,
                                     lookups=row.lookups,
                                     lookups_total=row.lookups_total,
@@ -4547,16 +4579,19 @@ class Exo:
                             username = row.username
                             email = row.email
                             salted_password = row.salted_password
-                            old_wallet_id = row.wallet_id
+                            old_azero_wallet_id = row.azero_wallet_id
+                            old_pdot_wallet_id = row.pdot_wallet_id
                             ga = self.stackset.peek("galactus-account")
-                            wallet_id = ga.wallet_id
+                            azero_wallet_id = ga.azero_wallet_id
+                            pdot_wallet_id = ga.pdot_wallet_id
                             api_key = row.api_key
                             exo.galactus_account_create(
                                 locked=True,
                                 username=username,
                                 email=email,
                                 salted_password=salted_password,
-                                wallet_id=wallet_id,
+                                azero_wallet_id=azero_wallet_id,
+                                pdot_wallet_id=pdot_wallet_id,
                                 api_key=api_key)
                             self.endo.update_event(
                                 "galactus-account-wallet-changeable", None)
@@ -4571,16 +4606,19 @@ class Exo:
                             username = row.username
                             email = row.email
                             salted_password = row.salted_password
-                            old_wallet_id = row.wallet_id
+                            old_azero_wallet_id = row.azero_wallet_id
+                            old_pdot_wallet_id = row.pdot_wallet_id
                             ga = self.stackset.peek("galactus-account")
-                            wallet_id = ga.wallet_id
+                            azero_wallet_id = ga.azero_wallet_id
+                            pdot_wallet_id = ga.pdot_wallet_id
                             api_key = row.api_key
                             exo.galactus_account_create(
                                 locked=True,
                                 username=username,
                                 email=email,
                                 salted_password=salted_password,
-                                wallet_id=wallet_id,
+                                azero_wallet_id=azero_wallet_id,
+                                pdot_wallet_id=pdot_wallet_id,
                                 api_key=api_key)
                             self.endo.update_event(
                                 "galactus-account-password-changeable", None)
@@ -4951,7 +4989,8 @@ class Exo:
                        galactus_account_table.c.api_key_expiration,
                        galactus_account_table.c.username,
                        galactus_account_table.c.email,
-                       galactus_account_table.c.wallet_id)
+                       galactus_account_table.c.azero_wallet_id,
+                       galactus_account_table.c.pdot_wallet_id)
         q = q.where(galactus_account_table.c.username == gaun)
         self.db_load_query_create(q=q)
         self.stackset.reset_access()
@@ -5129,15 +5168,19 @@ class Exo:
         gaun = ga.username
         gaut = ga.unique_total
         gault = ga.unlocks_total
-        gawc = ga.wallet_confirmed
-        gawi = ga.wallet_id
+        gazwc = ga.azero_wallet_confirmed
+        gadwc = ga.pdot_wallet_confirmed
+        gazwi = ga.azero_wallet_id
+        gadwi = ga.pdot_wallet_id
         q = sql.insert(galactus_account_table)
         q = q.values(username=gaun,
                      salted_password=gasp,
                      api_key=gaak,
                      email=gaem,
-                     wallet_confirmed=gawc,
-                     wallet_id=gawi,
+                     pdot_wallet_confirmed=gadwc,
+                     azero_wallet_confirmed=gazwc,
+                     azero_wallet_id=gazwi,
+                     pdot_wallet_id=gadwi,
                      tokens_deposited=gatdp,
                      tokens_deducted=gatdd,
                      tokens_withdrawn=gatw,
@@ -5190,11 +5233,21 @@ class Exo:
         self.stackset.set_changeable(["db-store-query"])
         ga = self.stackset.peek("galactus-account")
         gaak = ga.api_key
-        gawi = ga.wallet_id
-        assert not gawi == ""
+        gazwi = ga.azero_wallet_id
+        gadwi = ga.pdot_wallet_id
+        assert (not gazwi == "" or not gadwi == "")
         q = sql.update(galactus_account_table)
         q = q.where(galactus_account_table.c.api_key == gaak)
-        q = q.values(wallet_id=gawi)
+        if (not gazwi == "" and not gadwi == ""):
+            q = q.values(azero_wallet_id=gazwi,
+                         azero_wallet_confirmed=False,
+                         pdot_wallet_id=gadwi,
+                         pdot_wallet_confirmed=False)
+        elif not gazwi == "":
+            q = q.values(azero_wallet_id=gazwi, azero_wallet_confirmed=False)
+        elif not gadwi == "":
+            q = q.values(pdot_wallet_id=gadwi, pdot_wallet_confirmed=False)
+
         exo.db_store_query_create(q=q)
         self.stackset.reset_access()
         return self
@@ -5906,7 +5959,8 @@ class Exo:
                         "email": ga.email,
                         "tokens_earned": ga.tokens_earned,
                         "tokens_earned_total": ga.tokens_earned_total,
-                        "wallet_id": ga.wallet_id
+                        "azero_wallet_id": ga.azero_wallet_id,
+                        "pdot_wallet_id": ga.pdot_wallet_id
                     }
 
         elif ctx.event == "admin-galactus-account-get":
@@ -5921,7 +5975,8 @@ class Exo:
                     "email": ga.email,
                     "tokens_earned": ga.tokens_earned,
                     "tokens_earned_total": ga.tokens_earned_total,
-                    "wallet_id": ga.wallet_id,
+                    "azero_wallet_id": ga.azero_wallet_id,
+                    "pdot_wallet_id": ga.pdot_wallet_id,
                     "referred": ga.referred,
                     "lookups": ga.lookups,
                     "lookups_total": ga.lookups_total,
@@ -6053,7 +6108,8 @@ class UserInfo(BaseModel):
     lookups_total: int
     tokens_earned: int
     tokens_earned_total: int
-    wallet_id: str
+    azero_wallet_id: str
+    pdot_wallet_id: str
 
 
 class AdminUserInfo(BaseModel):
@@ -6064,7 +6120,8 @@ class AdminUserInfo(BaseModel):
     lookups_total: int
     tokens_earned: int
     tokens_earned_total: int
-    wallet_id: str
+    azero_wallet_id: str
+    pdot_wallet_id: str
     unique: int
     unique_total: int
     malicious: int
@@ -6155,7 +6212,8 @@ class UserBcaddrReset(BaseModel):
     key: str
     username: str
     password: str
-    wallet_id: str
+    azero_wallet_id: str
+    pdot_wallet_id: str
 
     @validator("username")
     def validate_username(cls, username):
@@ -6309,7 +6367,7 @@ def http_site_get(site_get: SiteGet, res_bptr: fapi.Response) -> SiteInfo:
         rurl = dict_get(rsp.body, "url")
         rstake_state = dict_get(rsp.body, "stake_state")
         response = SiteInfo(url=rurl, stake_state=rstake_state)
-    elif rsp.status == 401:
+    elif rsp.status == 404:
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     else:
         assert False, rsp.status
@@ -6347,7 +6405,8 @@ def http_user_get(user_get: UserGet, res_bptr: fapi.Response) -> UserInfo:
         rlookups_total = dict_get(rsp.body, "lookups_total")
         rtokens_earned = dict_get(rsp.body, "tokens_earned")
         rtokens_earned_total = dict_get(rsp.body, "tokens_earned_total")
-        rwallet_id = dict_get(rsp.body, "wallet_id")
+        razero_wallet_id = dict_get(rsp.body, "azero_wallet_id")
+        rpdot_wallet_id = dict_get(rsp.body, "pdot_wallet_id")
         response = UserInfo(username=rusername,
                             email=remail,
                             referred=rreferred,
@@ -6355,7 +6414,8 @@ def http_user_get(user_get: UserGet, res_bptr: fapi.Response) -> UserInfo:
                             lookups_total=rlookups_total,
                             tokens_earned=rtokens_earned,
                             tokens_earned_total=rtokens_earned_total,
-                            wallet_id=rwallet_id)
+                            azero_wallet_id=razero_wallet_id,
+                            pdot_wallet_id=rpdot_wallet_id)
     elif rsp.status == 404:
         response = JSONResponse(status_code=rsp.status, content=rsp.body)
     elif rsp.status == 401:
@@ -6397,7 +6457,8 @@ def http_admin_user_get(user_get: AdminUserGet,
         rlookups_total = dict_get(rsp.body, "lookups_total")
         rtokens_earned = dict_get(rsp.body, "tokens_earned")
         rtokens_earned_total = dict_get(rsp.body, "tokens_earned_total")
-        rwallet_id = dict_get(rsp.body, "wallet_id")
+        razero_wallet_id = dict_get(rsp.body, "azero_wallet_id")
+        rpdot_wallet_id = dict_get(rsp.body, "pdot_wallet_id")
         runique = dict_get(rsp.body, "unique")
         runique_total = dict_get(rsp.body, "unique_total")
         rmalicious = dict_get(rsp.body, "malicious")
@@ -6415,7 +6476,8 @@ def http_admin_user_get(user_get: AdminUserGet,
                                  lookups_total=rlookups_total,
                                  tokens_earned=rtokens_earned,
                                  tokens_earned_total=rtokens_earned_total,
-                                 wallet_id=rwallet_id,
+                                 azero_wallet_id=razero_wallet_id,
+                                 pdot_wallet_id=rpdot_wallet_id,
                                  unique=runique,
                                  unique_total=runique_total,
                                  malicious=rmalicious,
@@ -6604,12 +6666,14 @@ def http_user_bcaddr_reset(user_bcar: UserBcaddrReset,
                            res_bptr: fapi.Response) -> ApiKey:
     username = user_bcar.username
     password = user_bcar.password
-    wallet_id = user_bcar.wallet_id
+    azero_wallet_id = user_bcar.azero_wallet_id
+    pdot_wallet_id = user_bcar.pdot_wallet_id
     key = user_bcar.key
     exo.galactus_account_create(username=username,
                                 api_key=key,
                                 unsalted_password=password,
-                                wallet_id=wallet_id)
+                                azero_wallet_id=azero_wallet_id,
+                                pdot_wallet_id=pdot_wallet_id)
     try:
         endo.send("public-wallet-change")
 
