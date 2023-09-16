@@ -5947,7 +5947,8 @@ class Exo:
                         "email": "",
                         "tokens_earned": -1,
                         "tokens_earned_total": -1,
-                        "wallet_id": ""
+                        "azero_wallet_id": "",
+                        "pdot_wallet_id": ""
                     }
                 else:
                     assert not ga.email == ""
@@ -6063,7 +6064,8 @@ def validate_url_common(url):
 
 
 class UserRegistration(BaseModel):
-    address: str
+    azero_wallet_id: str
+    pdot_wallet_id: str
     email: str
     key: str
     password: str
@@ -6098,6 +6100,8 @@ class UserCreds(BaseModel):
     key: str
     username: str
     email: str
+    azero_wallet_id: str
+    pdot_wallet_id: str
 
 
 class UserInfo(BaseModel):
@@ -6505,10 +6509,14 @@ def http_user_create(user_reg: UserRegistration,
     username = user_reg.username
     email = user_reg.email
     password = user_reg.password
+    azero_wallet_id = user_reg.azero_wallet_id
+    pdot_wallet_id = user_reg.pdot_wallet_id
     exo.galactus_account_create(username=username,
                                 unsalted_password=password,
                                 email=email,
-                                api_key=pub_key)
+                                api_key=pub_key,
+                                pdot_wallet_id=pdot_wallet_id,
+                                azero_wallet_id=azero_wallet_id)
     try:
         endo.send("public-galactus-account-create")
 
@@ -6600,7 +6608,13 @@ def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     new_key = dict_get(rsp.body, "key")
     email = dict_get(rsp.body, "email")
     username = dict_get(rsp.body, "username")
-    response = UserCreds(username=username, email=email, key=new_key)
+    azero_wallet_id = dict_get(rsp.body, "azero_wallet_id")
+    pdot_wallet_id = dict_get(rsp.body, "pdot_wallet_id")
+    response = UserCreds(username=username,
+                         email=email,
+                         key=new_key,
+                         pdot_wallet_id=pdot_wallet_id,
+                         azero_wallet_id=azero_wallet_id)
     return response
 
 
