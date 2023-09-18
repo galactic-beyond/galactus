@@ -65,7 +65,11 @@ def verify_password(phash, pw):
 
 
 # Hypothesis Settings
-hyp.settings.register_profile("dev", hyp.settings(verbosity=Verbosity.verbose))
+hyp.settings.register_profile(
+    "dev",
+    hyp.settings(verbosity=Verbosity.verbose,
+                 max_examples=1000,
+                 stateful_step_count=500))
 hyp.settings.load_profile("dev")
 # Unit Test Switch
 unit_test_mode = True
@@ -211,33 +215,47 @@ class fuzzer(RuleBasedStateMachine):
         db_metadata_logs.create_all(db_engine_logs)
         return "password123"
 
-    @rule(target=emails, email=hyp.strategies.emails())
+    @initialize(target=emails,
+                email=hyp.strategies.lists(hyp.strategies.emails(),
+                                           min_size=5,
+                                           unique=True))
     def add_email(self, email):
-        return email
+        return multiple(*email)
 
-    @rule(target=keys, key=hyp.strategies.uuids())
+    @initialize(target=keys,
+                key=hyp.strategies.lists(hyp.strategies.uuids(),
+                                         min_size=5,
+                                         unique=True))
     def add_key(self, key):
-        return key
+        return multiple(*key)
 
-    @rule(target=usernames,
-          username=hyp.strategies.from_regex(regex='[A-Za-z0-9]+',
-                                             fullmatch=True))
+    @initialize(target=usernames,
+                username=hyp.strategies.lists(hyp.strategies.from_regex(
+                    regex='[A-Za-z0-9]+', fullmatch=True),
+                                              min_size=5,
+                                              unique=True))
     def add_username(self, username):
-        return username
+        return multiple(*username)
 
-    @rule(target=passwords,
-          password=hyp.strategies.from_regex(regex='[A-Za-z0-9]+',
-                                             fullmatch=True))
+    @initialize(target=passwords,
+                password=hyp.strategies.lists(hyp.strategies.from_regex(
+                    regex='[A-Za-z0-9]+', fullmatch=True),
+                                              min_size=5,
+                                              unique=True))
     def add_password(self, password):
-        return password
+        return multiple(*password)
 
-    @rule(target=untested_urls, url=g_urls())
+    @initialize(target=untested_urls,
+                url=hyp.strategies.lists(g_urls(), min_size=5, unique=True))
     def add_url(self, url):
-        return url
+        return multiple(*url)
 
-    @rule(target=domains, domain=g_domains())
+    @initialize(target=domains,
+                domain=hyp.strategies.lists(g_domains(),
+                                            min_size=5,
+                                            unique=True))
     def add_domain(self, domain):
-        return domain
+        return multiple(*domain)
 
     @rule(target=credentials,
           email=consumes(emails),
@@ -5895,7 +5913,9 @@ class Exo:
                     res.body = {
                         "key": ga.api_key,
                         "username": ga.username,
-                        "email": ga.email
+                        "email": ga.email,
+                        "azero_wallet_id": ga.azero_wallet_id,
+                        "pdot_wallet_id": ga.pdot_wallet_id
                     }
                     res.status = 200
 
