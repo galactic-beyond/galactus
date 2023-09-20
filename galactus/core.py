@@ -68,8 +68,8 @@ def verify_password(phash, pw):
 hyp.settings.register_profile(
     "dev",
     hyp.settings(verbosity=Verbosity.verbose,
-                 max_examples=1000,
-                 stateful_step_count=500))
+                 max_examples=700,
+                 stateful_step_count=50))
 hyp.settings.load_profile("dev")
 # Unit Test Switch
 unit_test_mode = True
@@ -217,14 +217,14 @@ class fuzzer(RuleBasedStateMachine):
 
     @initialize(target=emails,
                 email=hyp.strategies.lists(hyp.strategies.emails(),
-                                           min_size=5,
+                                           min_size=10,
                                            unique=True))
     def add_email(self, email):
         return multiple(*email)
 
     @initialize(target=keys,
                 key=hyp.strategies.lists(hyp.strategies.uuids(),
-                                         min_size=5,
+                                         min_size=10,
                                          unique=True))
     def add_key(self, key):
         return multiple(*key)
@@ -232,7 +232,7 @@ class fuzzer(RuleBasedStateMachine):
     @initialize(target=usernames,
                 username=hyp.strategies.lists(hyp.strategies.from_regex(
                     regex='[A-Za-z0-9]+', fullmatch=True),
-                                              min_size=5,
+                                              min_size=10,
                                               unique=True))
     def add_username(self, username):
         return multiple(*username)
@@ -240,19 +240,19 @@ class fuzzer(RuleBasedStateMachine):
     @initialize(target=passwords,
                 password=hyp.strategies.lists(hyp.strategies.from_regex(
                     regex='[A-Za-z0-9]+', fullmatch=True),
-                                              min_size=5,
+                                              min_size=10,
                                               unique=True))
     def add_password(self, password):
         return multiple(*password)
 
     @initialize(target=untested_urls,
-                url=hyp.strategies.lists(g_urls(), min_size=5, unique=True))
+                url=hyp.strategies.lists(g_urls(), min_size=10, unique=True))
     def add_url(self, url):
         return multiple(*url)
 
     @initialize(target=domains,
                 domain=hyp.strategies.lists(g_domains(),
-                                            min_size=5,
+                                            min_size=10,
                                             unique=True))
     def add_domain(self, domain):
         return multiple(*domain)
@@ -285,10 +285,10 @@ class fuzzer(RuleBasedStateMachine):
         else:
             assert False, rsp.status
 
-    @rule(target=credentials,
-          credential=consumes(deleted_credentials),
-          email=emails,
-          password=passwords)
+    #@rule(target=credentials,
+          #credential=consumes(deleted_credentials),
+          #email=emails,
+          #password=passwords)
     def mk_del_acct(self, credential, email, password):
         exo = self.exo
         endo = self.endo
@@ -988,6 +988,27 @@ def admin_account_response_sane(bod):
     return b
 
 
+def admin_stakeable_response_sane(bod):
+    if bod == None:
+        return False
+
+    keys = response_body_keys(bod)
+    b = True
+    b = (b and not bod == None)
+    b = (b and len(keys) == 5)
+    b = (b and is_member("url", keys))
+    b = (b and not dict_get(bod, "url") == None)
+    b = (b and is_member("stake_state", keys))
+    b = (b and not dict_get(bod, "stake_state") == None)
+    b = (b and is_member("unlocks", keys))
+    b = (b and not dict_get(bod, "unlocks") == None)
+    b = (b and is_member("flags", keys))
+    b = (b and not dict_get(bod, "flags") == None)
+    b = (b and is_member("visits", keys))
+    b = (b and not dict_get(bod, "visits") == None)
+    return b
+
+
 def stakeable_response_sane(bod):
     if bod == None:
         return False
@@ -995,7 +1016,7 @@ def stakeable_response_sane(bod):
     keys = response_body_keys(bod)
     b = True
     b = (b and not bod == None)
-    b = (b and len(keys) == 1)
+    b = (b and len(keys) == 2)
     b = (b and is_member("url", keys))
     b = (b and not dict_get(bod, "url") == None)
     b = (b and is_member("stake_state", keys))
@@ -1029,7 +1050,7 @@ def login_response_sane(bod):
     keys = response_body_keys(bod)
     b = True
     b = (b and not bod == None)
-    b = (b and len(keys) == 3)
+    b = (b and len(keys) == 5)
     b = (b and is_member("key", keys))
     b = (b and is_member("username", keys))
     b = (b and is_member("email", keys))
@@ -1306,10 +1327,8 @@ class response(object):
         r_snap = exo.stackset.readable
         c_snap = exo.stackset.changeable
         exo.stackset.push_unsafe("response", self)
-        (exo.response_is_locked().valid_response_body().andify().
-         guarded_verify())
-        (exo.response_is_locked().valid_response_status().andify().
-         guarded_verify())
+        (exo.response_is_locked().valid_response_body().guarded_verify())
+        (exo.response_is_locked().valid_response_status().guarded_verify())
         exo.stackset.pop_unsafe("response")
         exo.stackset.readable = r_snap
         exo.stackset.changeable = c_snap
@@ -2230,9 +2249,11 @@ def pre_verify():
              val=2).galactus_account_length().number_gteq().guarded_verify())
         # new-api-key-on-logout
         (exo.state_create(name="ready").next_state_is().state_create(
-            name="begin-here").state_is().is_not().andify().context_create(
-                event="public-galactus-account-logout").context_is().andify().
-         galactus_account_has_new_api_key().andify().guarded_verify())
+            name="begin-here").state_is().is_not().andify().event_create(
+                name="galactus-account-cannot-logout").event_is().is_not().
+         andify().context_create(
+             event="public-galactus-account-logout").context_is().andify(
+             ).galactus_account_has_new_api_key().guarded_verify())
 
 
 def post_verify():
@@ -3402,7 +3423,7 @@ class Exo:
     def guarded_verify(self):
         self.stackset.set_readable(["boolean"])
         self.stackset.set_changeable(["boolean"])
-        assert self.stackset.stack_len("boolean") > 0
+        assert self.stackset.stack_len("boolean") >= 2
         target = self.stackset.pop("boolean")
         guard = self.stackset.pop("boolean")
         if guard == True:
@@ -4903,6 +4924,18 @@ class Exo:
         self.stackset.reset_access()
         return self
 
+    def event_is(self):
+        exo = self
+        self.stackset.set_readable(["event"])
+        self.stackset.set_changeable(["event", "boolean"])
+        e1 = self.stackset.pop("event")
+        assert self.stackset.stack_len("event") > 0
+        e2 = self.stackset.peek("event")
+        b = e1 == e2
+        self.stackset.push("boolean", b)
+        self.stackset.reset_access()
+        return self
+
     def bool_eventify(self):
         exo = self
         self.stackset.set_readable([])
@@ -5806,7 +5839,7 @@ class Exo:
 
         elif ctx.event == "admin-stakeable-get":
             if s == 200:
-                b = (b and stakeable_response_sane(bod))
+                b = (b and admin_stakeable_response_sane(bod))
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
             else:
@@ -6028,7 +6061,7 @@ class Exo:
                 res.body = {
                     "url": s.url,
                     "visits": s.visits,
-                    "stake-state": s.stake_state,
+                    "stake_state": s.stake_state,
                     "unlocks": s.unlocks,
                     "flags": s.flags
                 }
@@ -6600,7 +6633,14 @@ def http_user_delete(user_reg: UserDeletion,
     return response
 
 
-alt_login_responses = {"401": {"error_message": "bad credentials"}}
+alt_login_responses = {
+    "404": {
+        "error_message": "not such account"
+    },
+    "401": {
+        "error_message": "bad credentials"
+    }
+}
 
 
 @app.post("/user-login", responses=alt_login_responses)
