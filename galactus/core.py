@@ -6719,16 +6719,25 @@ def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
     res_bptr.status_code = rsp.status
-    new_key = dict_get(rsp.body, "key")
-    email = dict_get(rsp.body, "email")
-    username = dict_get(rsp.body, "username")
-    azero_wallet_id = dict_get(rsp.body, "azero_wallet_id")
-    pdot_wallet_id = dict_get(rsp.body, "pdot_wallet_id")
-    response = UserCreds(username=username,
-                         email=email,
-                         key=new_key,
-                         pdot_wallet_id=pdot_wallet_id,
-                         azero_wallet_id=azero_wallet_id)
+    if rsp.status == 200:
+        new_key = dict_get(rsp.body, "key")
+        new_key = dict_get(rsp.body, "key")
+        email = dict_get(rsp.body, "email")
+        username = dict_get(rsp.body, "username")
+        azero_wallet_id = dict_get(rsp.body, "azero_wallet_id")
+        pdot_wallet_id = dict_get(rsp.body, "pdot_wallet_id")
+        response = UserCreds(username=username,
+                             email=email,
+                             key=new_key,
+                             pdot_wallet_id=pdot_wallet_id,
+                             azero_wallet_id=azero_wallet_id)
+    elif rsp.status == 409:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    elif rsp.status == 401:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False, rsp.status
+
     return response
 
 
@@ -6760,7 +6769,17 @@ def http_user_logout(user_lo: UserLogout, res_bptr: fapi.Response) -> ApiKey:
     return response
 
 
-@app.post("/user-password-reset", responses=alt_logout_responses)
+alt_pwreset_responses = {
+    "404": {
+        "error_message": ["not such account"]
+    },
+    "401": {
+        "error_message": ["bad credentials"]
+    }
+}
+
+
+@app.post("/user-password-reset", responses=alt_pwreset_responses)
 def http_user_pw_reset(user_pwr: UserPwReset,
                        res_bptr: fapi.Response) -> ApiKey:
     username = user_pwr.username
@@ -6785,11 +6804,29 @@ def http_user_pw_reset(user_pwr: UserPwReset,
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
     res_bptr.status_code = rsp.status
-    response = ApiKey(key=pub_key)
+    if rsp.status == 200:
+        response = ApiKey(key=pub_key)
+    elif rsp.status == 404:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    elif rsp.status == 401:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False, rsp.status
+
     return response
 
 
-@app.post("/user-bcaddr-reset", responses=alt_logout_responses)
+alt_bcaddr_responses = {
+    "404": {
+        "error_message": ["not such account"]
+    },
+    "401": {
+        "error_message": ["bad credentials"]
+    }
+}
+
+
+@app.post("/user-bcaddr-reset", responses=alt_bcaddr_responses)
 def http_user_bcaddr_reset(user_bcar: UserBcaddrReset,
                            res_bptr: fapi.Response) -> ApiKey:
     username = user_bcar.username
@@ -6816,7 +6853,15 @@ def http_user_bcaddr_reset(user_bcar: UserBcaddrReset,
     rsp_ls = endo.stackset.stacks["response"]
     rsp = rsp_ls[0]
     res_bptr.status_code = rsp.status
-    response = ApiKey(key=pub_key)
+    if rsp.status == 200:
+        response = ApiKey(key=pub_key)
+    elif rsp.status == 404:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    elif rsp.status == 401:
+        response = JSONResponse(status_code=rsp.status, content=rsp.body)
+    else:
+        assert False, rsp.status
+
     return response
 
 
