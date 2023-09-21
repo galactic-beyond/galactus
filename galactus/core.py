@@ -5858,7 +5858,7 @@ class Exo:
             elif s == 401:
                 # Bad credentials
                 b = (b and not bod == None)
-                b = (b and pub_key_response_sane(bod))
+                b = (b and error_response_sane(bod))
             else:
                 assert False, s
 
@@ -5909,7 +5909,7 @@ class Exo:
 
         elif (ctx.event == "public-password-change"
               or ctx.event == "public-wallet-change"):
-            if s == 201:
+            if s == 200:
                 b = (b and key_response_sane(bod))
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
@@ -5988,15 +5988,13 @@ class Exo:
             if res.status == 500:
                 res.body = {"key": pub_key}
             elif ga == None:
-                # TODO bad password, return public-key
-                res.body = {"key": pub_key}
+                res.body = {"error_message": ["bad credentials"]}
                 res.status = 401
             elif not ga == None:
                 if res.status == 401:
                     # Account was not found
-                    res.body = {"key": pub_key}
+                    res.body = {"error_message": ["bad credentials"]}
                 elif (res.status == 201 or res.status == 200):
-                    # TODO password matches, return api-key
                     res.body = {
                         "key": ga.api_key,
                         "username": ga.username,
@@ -6127,6 +6125,7 @@ class Exo:
             elif res.status == 404:
                 res.body = {"error_message": ["no such account"]}
             elif res.status == 201:
+                res.status = 200
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
 
