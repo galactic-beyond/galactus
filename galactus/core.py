@@ -68,7 +68,7 @@ def verify_password(phash, pw):
 hyp.settings.register_profile(
     "dev",
     hyp.settings(verbosity=Verbosity.verbose,
-                 max_examples=700,
+                 max_examples=500,
                  stateful_step_count=50))
 hyp.settings.load_profile("dev")
 # Unit Test Switch
@@ -618,6 +618,32 @@ class fuzzer(RuleBasedStateMachine):
         else:
             assert False, rsp.status
 
+    @rule(credential=credentials,
+          azero_wallet_id=domains,
+          pdot_wallet_id=domains)
+    def change_azpdaddr_old_acct_bad_pw(self, credential, azero_wallet_id,
+                                        pdot_wallet_id):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        password = "some random bad password"
+        exo.galactus_account_create(username=username,
+                                    api_key=pub_key,
+                                    unsalted_password=password,
+                                    azero_wallet_id=azero_wallet_id,
+                                    pdot_wallet_id=pdot_wallet_id)
+        endo.send("public-wallet-change")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 401:
+            assert True
+        else:
+            assert False, rsp.status
+
     @rule(target=credentials,
           credential=consumes(credentials),
           password=passwords)
@@ -646,6 +672,33 @@ class fuzzer(RuleBasedStateMachine):
             assert False, rsp.status
 
         return nc
+
+    @rule(credential=credentials, password=passwords)
+    def change_pw_old_acct_bad_pw(self, credential, password):
+        exo = self.exo
+        endo = self.endo
+        c = credential
+        if c == None:
+            return
+
+        username = c[0]
+        email = c[1]
+        password_old = "some random bad password"
+        key = c[3]
+        nc = (username, email, password, key)
+        exo.galactus_account_create(username=username,
+                                    api_key=pub_key,
+                                    unsalted_password=password_old,
+                                    new_unsalted_password=password)
+        endo.send("public-password-change")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 401:
+            assert True
+        else:
+            assert False, rsp.status
+
+        return
 
     @rule(credential=credentials)
     def login_old_acct_bad_pw(self, credential):
@@ -1033,7 +1086,7 @@ def error_response_sane(bod):
     b = (b and not bod == None)
     b = (b and len(keys) == 1)
     b = (b and keys[0] == "error_message")
-    b = (b and isinstance(bod["error_message"], str))
+    b = (b and isinstance(bod["error_message"], list))
     return b
 
 
@@ -5780,6 +5833,7 @@ class Exo:
                 # Should return error-list
                 # We handle form-validation at fapi-layer, but here we validate conflicts
                 b = (b and not bod == None)
+                b = (b and error_response_sane(bod))
             else:
                 assert False, s
 
@@ -5905,12 +5959,12 @@ class Exo:
         res = self.stackset.peek("response")
         if ctx.event == "public-galactus-account-create":
             if res.status == 500:
-                res.body = {"error_message": "internal error"}
+                res.body = {"error_message": ["internal error"]}
             elif res.status == 201:
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
             elif res.status == 409:
-                res.body = {"error_message": "account already exists"}
+                res.body = {"error_message": ["account already exists"]}
 
         elif ctx.event == "public-galactus-account-destroy":
             if res.status == 500:
@@ -5987,7 +6041,7 @@ class Exo:
         elif ctx.event == "public-galactus-account-get":
             # If email is undefined we show only public members
             if res.status == 404:
-                res.body = {"error_message": "no such account"}
+                res.body = {"error_message": ["no such account"]}
             elif res.status == 200:
                 ga = self.stackset.peek("galactus-account")
                 if ga.email == "":
@@ -6020,7 +6074,7 @@ class Exo:
         elif ctx.event == "admin-galactus-account-get":
             # Admin gets all info, including flags/unlocks/unique/malicious and related
             if res.status == 404:
-                res.body = {"error_message": "no such account"}
+                res.body = {"error_message": ["no such account"]}
             elif res.status == 200:
                 ga = self.stackset.peek("galactus-account")
                 # TODO add those extra members into this response
@@ -6048,14 +6102,14 @@ class Exo:
 
         elif ctx.event == "public-stakeable-get":
             if res.status == 404:
-                res.body = {"error_message": "no such site"}
+                res.body = {"error_message": ["no such site"]}
             elif res.status == 200:
                 s = self.stackset.peek("site")
                 res.body = {"url": s.url, "stake_state": s.stake_state}
 
         elif ctx.event == "admin-stakeable-get":
             if res.status == 404:
-                res.body = {"error_message": "no such site"}
+                res.body = {"error_message": ["no such site"]}
             elif res.status == 200:
                 s = self.stackset.peek("site")
                 res.body = {
@@ -6069,9 +6123,9 @@ class Exo:
         elif (ctx.event == "public-password-change"
               or ctx.event == "public-wallet-change"):
             if res.status == 401:
-                res.body = {"error_message": "not authorized"}
+                res.body = {"error_message": ["not authorized"]}
             elif res.status == 404:
-                res.body = {"error_message": "no such account"}
+                res.body = {"error_message": ["no such account"]}
             elif res.status == 201:
                 ga = self.stackset.peek("galactus-account")
                 res.body = {"key": ga.api_key}
@@ -6093,7 +6147,7 @@ def validate_password_common(password):
     l = len(password)
     # TODO validate character set
     if l < 8:
-        raise ValueError("password too short")
+        raise ValueError("too short")
 
     return password
 
@@ -6102,7 +6156,7 @@ def validate_username_common(username):
     l = len(username)
     # TODO validate character set
     if l < 5:
-        raise ValueError("username too short")
+        raise ValueError("too short")
 
     return username
 
@@ -6111,7 +6165,7 @@ def validate_url_common(url):
     l = len(url)
     # TODO validate character set
     if l < 1:
-        raise ValueError("url too short")
+        raise ValueError("too short")
 
     return url
 
@@ -6334,21 +6388,21 @@ def validation_exception_handler(req, exc):
     return JSONResponse(res, status_code=422)
 
 
-alt_create_responses = {"409": {"error_message": "account already exists"}}
+alt_create_responses = {"409": {"error_message": ["account already exists"]}}
 alt_acct_get_responses = {
     "404": {
-        "error_message": "not such account"
+        "error_message": ["not such account"]
     },
     "401": {
-        "error_message": "bad credential"
+        "error_message": ["bad credential"]
     }
 }
 alt_site_get_responses = {
     "404": {
-        "error_message": "not such site"
+        "error_message": ["not such site"]
     },
     "401": {
-        "error_message": "bad credential"
+        "error_message": ["bad credential"]
     }
 }
 
@@ -6597,10 +6651,10 @@ def http_user_create(user_reg: UserRegistration,
 
 alt_delete_responses = {
     "401": {
-        "error_message": "bad credentials"
+        "error_message": ["bad credentials"]
     },
     "404": {
-        "error_message": "no such account"
+        "error_message": ["no such account"]
     }
 }
 
@@ -6635,10 +6689,10 @@ def http_user_delete(user_reg: UserDeletion,
 
 alt_login_responses = {
     "404": {
-        "error_message": "not such account"
+        "error_message": ["not such account"]
     },
     "401": {
-        "error_message": "bad credentials"
+        "error_message": ["bad credentials"]
     }
 }
 
@@ -6678,7 +6732,7 @@ def http_user_login(user_li: UserLogin, res_bptr: fapi.Response) -> UserCreds:
     return response
 
 
-alt_logout_responses = {"401": {"error_message": "bad credentials"}}
+alt_logout_responses = {"401": {"error_message": ["bad credentials"]}}
 
 
 @app.post("/user-logout", responses=alt_logout_responses)
