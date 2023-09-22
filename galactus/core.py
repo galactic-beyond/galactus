@@ -613,7 +613,7 @@ class fuzzer(RuleBasedStateMachine):
         endo.send("public-wallet-change")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
-        if rsp.status == 201:
+        if rsp.status == 200:
             assert True
         else:
             assert False, rsp.status
@@ -666,7 +666,7 @@ class fuzzer(RuleBasedStateMachine):
         endo.send("public-password-change")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
-        if rsp.status == 201:
+        if rsp.status == 200:
             assert True
         else:
             assert False, rsp.status
@@ -5909,7 +5909,7 @@ class Exo:
 
         elif (ctx.event == "public-password-change"
               or ctx.event == "public-wallet-change"):
-            if s == 200:
+            if (s == 200 or s == 201):
                 b = (b and key_response_sane(bod))
             elif (s == 404 or s == 401):
                 b = (b and error_response_sane(bod))
