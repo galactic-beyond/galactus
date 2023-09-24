@@ -1,3 +1,7 @@
+# Copyright © Interlock Association -- This file is part of Galactus and is
+# published under the terms of a slightly modified EUPL v1.2 license, which
+# can be found in the LICENSE file.
+
 import random as random
 import datetime as datetime
 import time as time
@@ -64,6 +68,7 @@ def verify_password(phash, pw):
     return ret
 
 
+import exoparams as exoparams
 # Hypothesis Settings
 hyp.settings.register_profile(
     "dev",
@@ -72,23 +77,64 @@ hyp.settings.register_profile(
                  stateful_step_count=50))
 hyp.settings.load_profile("dev")
 # Unit Test Switch
-unit_test_mode = True
+unit_test_mode = exoparams.unit_test_mode
 # Main Test Switch
 galactus_test_mode = True
-import exoparams as exoparams
 # Threatslayer Public Key
 pub_key = "ceb62cfe-6ad9-4dab-8b34-46fcd6230d8c"
 admin_key = exoparams.admin_key
 # Initialize Database Tables
-db_path_main = "sqlite+pysqlite:///:memory:"
-db_path_logs = "sqlite+pysqlite:///:memory:"
+db_path_main = ""
+db_path_logs = ""
+connect_args = {}
+
+
+def set_main_db():
+    global db_path_main
+    global connect_args
+    if exoparams.test_db == "postgres":
+        db_path_main = exoparams.pg_path
+        connect_args = {}
+    elif exoparams.test_db == "sqlite-file":
+        db_path_main = exoparams.sqlite_main_path
+        connect_args = {"check_same_thread": False}
+    elif exoparams.test_db == "sqlite-mem":
+        db_path_main = exoparams.sqlite_mem_path
+        connect_args = {"check_same_thread": False}
+    else:
+        assert False
+
+    assert isinstance(db_path_main, str)
+    assert not db_path_main == ""
+
+
+def set_log_db():
+    global db_path_logs
+    global connect_args
+    if exoparams.test_log_db == "postgres":
+        db_path_logs = exoparams.pg_path
+        connect_args = {}
+    elif exoparams.test_log_db == "sqlite-file":
+        db_path_logs = exoparams.sqlite_logs_path
+        connect_args = {"check_same_thread": False}
+    elif exoparams.test_log_db == "sqlite-mem":
+        db_path_logs = exoparams.sqlite_mem_path
+        connect_args = {"check_same_thread": False}
+    else:
+        assert False
+
+    assert isinstance(db_path_logs, str)
+    assert not db_path_logs == ""
+
+
+set_log_db()
+set_main_db()
 if not galactus_test_mode == True:
     # Overwrite test-path with non-test, pg path for main, and sqlite on-disk path for logs.
     assert False, "implement-postgress-stuff"
-    db_path_main = "sqlite+pysqlite:///:memory:"
+    db_path_main = exoparams.pg_path
     db_path_logs = "sqlite+pysqlite:///:memory:"
 
-connect_args = {"check_same_thread": False}
 poolclass = StaticPool
 db_engine_main = sql.create_engine(db_path_main,
                                    connect_args=connect_args,
@@ -285,10 +331,10 @@ class fuzzer(RuleBasedStateMachine):
         else:
             assert False, rsp.status
 
-    #@rule(target=credentials,
-          #credential=consumes(deleted_credentials),
-          #email=emails,
-          #password=passwords)
+    @rule(target=credentials,
+          credential=consumes(deleted_credentials),
+          email=emails,
+          password=passwords)
     def mk_del_acct(self, credential, email, password):
         exo = self.exo
         endo = self.endo
