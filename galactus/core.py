@@ -5885,10 +5885,13 @@ class Exo:
 
         elif ctx.event == "public-galactus-account-destroy":
             # Should return public key
-            if (s == 200 or s == 201 or s == 404 or s == 401):
+            if (s == 200 or s == 201):
                 b = (b and not bod == None)
                 b = (b and key_response_sane(bod))
                 b = (b and bod["key"] == pub_key)
+            elif (s == 404 or s == 401):
+                b = (b and not bod == None)
+                b = (b and error_response_sane(bod))
             elif s == 500:
                 # Should return error-list
                 # We handle form-validation at fapi-layer, but here we validate conflicts
@@ -6022,10 +6025,10 @@ class Exo:
             elif res.status == 404:
                 # Maybe add message
                 # Are we giving away too much information by distinguishing 404 from 401?
-                res.body = {"key": pub_key}
+                res.body = {"error_message": ["no such account"]}
             elif res.status == 401:
                 # Maybe add message
-                res.body = {"key": pub_key}
+                res.body = {"error_message": ["bad credentials"]}
             else:
                 assert False, res.status
 
