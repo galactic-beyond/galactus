@@ -11,6 +11,7 @@ let
     #flask
     fastapi
     #favicon
+    psycopg2
     sqlalchemy
     requests
     hypothesis
