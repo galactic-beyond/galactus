@@ -278,7 +278,7 @@ class fuzzer(RuleBasedStateMachine):
     @initialize(target=usernames,
                 username=hyp.strategies.lists(hyp.strategies.from_regex(
                     regex='[A-Za-z0-9]+', fullmatch=True),
-                                              min_size=10,
+                                              min_size=20,
                                               unique=True))
     def add_username(self, username):
         return multiple(*username)
@@ -433,6 +433,9 @@ class fuzzer(RuleBasedStateMachine):
 
         username = c[0]
         api_key = c[3]
+        if api_key == None:
+            return
+
         exo.galactus_account_create(username=username,
                                     unsalted_password='placeholder',
                                     email='placeholder',
@@ -537,6 +540,9 @@ class fuzzer(RuleBasedStateMachine):
             return
 
         api_key = c[3]
+        if api_key == None:
+            return
+
         exo.galactus_account_create(username=username,
                                     unsalted_password='placeholder',
                                     email='placeholder',
@@ -617,7 +623,7 @@ class fuzzer(RuleBasedStateMachine):
 
         return c
 
-    @rule(credential=credentials)
+    @rule(target=credentials, credential=consumes(credentials))
     def login_old_acct(self, credential):
         exo = self.exo
         endo = self.endo
@@ -626,6 +632,7 @@ class fuzzer(RuleBasedStateMachine):
             return
 
         username = c[0]
+        email = c[1]
         password = c[2]
         exo.galactus_account_create(username=username,
                                     api_key=pub_key,
@@ -633,10 +640,13 @@ class fuzzer(RuleBasedStateMachine):
         endo.send("public-galactus-account-login")
         rsp_ls = endo.stackset.stacks["response"]
         rsp = rsp_ls[0]
+        new_key = dict_get(rsp.body, "key")
         if rsp.status == 200:
             assert True
         else:
             assert False, rsp.status
+
+        return (username, email, password, new_key)
 
     @rule(credential=credentials,
           azero_wallet_id=domains,
@@ -650,6 +660,10 @@ class fuzzer(RuleBasedStateMachine):
             return
 
         username = c[0]
+        api_key = c[3]
+        if api_key == None:
+            return
+
         password = c[2]
         exo.galactus_account_create(username=username,
                                     api_key=pub_key,
@@ -661,6 +675,22 @@ class fuzzer(RuleBasedStateMachine):
         rsp = rsp_ls[0]
         if rsp.status == 200:
             assert True
+        else:
+            assert False, rsp.status
+
+        exo.galactus_account_create(username=username,
+                                    unsalted_password='placeholder',
+                                    email='placeholder',
+                                    api_key=api_key)
+        endo.send("public-galactus-account-get")
+        rsp_ls = endo.stackset.stacks["response"]
+        rsp = rsp_ls[0]
+        if rsp.status == 200:
+            assert True
+            gazwi = dict_get(rsp.body, "azero_wallet_id")
+            gadwi = dict_get(rsp.body, "pdot_wallet_id")
+            assert gazwi == azero_wallet_id, [gazwi, azero_wallet_id]
+            assert gadwi == pdot_wallet_id, [gadwi, pdot_wallet_id]
         else:
             assert False, rsp.status
 
@@ -781,7 +811,7 @@ class fuzzer(RuleBasedStateMachine):
                                     unsalted_password='placeholder')
         endo.send("public-galactus-account-logout")
 
-    @rule(credential=credentials)
+    @rule(target=credentials, credential=consumes(credentials))
     def logout_old_acct(self, credential):
         exo = self.exo
         endo = self.endo
@@ -790,11 +820,17 @@ class fuzzer(RuleBasedStateMachine):
             return
 
         username = c[0]
+        email = c[1]
+        password = c[2]
         key = c[3]
+        if key == None:
+            return
+
         exo.galactus_account_create(username=username,
                                     api_key=key,
                                     salted_password='placeholder')
         endo.send("public-galactus-account-logout")
+        return (username, email, password, None)
 
     @rule(target=tested_urls,
           url=consumes(untested_urls),
@@ -808,6 +844,9 @@ class fuzzer(RuleBasedStateMachine):
 
         username = c[0]
         key = c[3]
+        if key == None:
+            return
+
         exo.galactus_account_create(username=username,
                                     api_key=key,
                                     salted_password='placeholder',
@@ -848,6 +887,9 @@ class fuzzer(RuleBasedStateMachine):
 
         username = c[0]
         key = c[3]
+        if key == None:
+            return
+
         exo.galactus_account_create(username=username,
                                     api_key=key,
                                     salted_password='placeholder',
@@ -869,6 +911,14 @@ class fuzzer(RuleBasedStateMachine):
     def retest_site_calm(self, url, credential):
         if url == None:
             return None
+
+        c = credential
+        if c == None:
+            return None
+
+        key = c[3]
+        if key == None:
+            return
 
         rsp = self.get_seen_site_admin_calm(url)
         stats1 = rsp.body
@@ -903,6 +953,9 @@ class fuzzer(RuleBasedStateMachine):
     def get_seen_site_admin_calm(self, url):
         exo = self.exo
         endo = self.endo
+        if url == None:
+            return None
+
         exo.galactus_account_create(username='username',
                                     api_key=admin_key,
                                     salted_password='placeholder')
@@ -921,6 +974,9 @@ class fuzzer(RuleBasedStateMachine):
     def get_seen_site_pub_calm(self, url):
         exo = self.exo
         endo = self.endo
+        if url == None:
+            return None
+
         exo.galactus_account_create(username='username',
                                     api_key=pub_key,
                                     salted_password='placeholder')
@@ -999,7 +1055,7 @@ class fuzzer(RuleBasedStateMachine):
         self.test_site_anon(url)
 
 
-if galactus_test_mode == True:
+if (galactus_test_mode == True and exoparams.drop_on_start):
     db_metadata_main.drop_all(db_engine_main)
     db_metadata_logs.drop_all(db_engine_logs)
 
@@ -5382,12 +5438,12 @@ class Exo:
         self.stackset.set_readable(["galactus-account"])
         self.stackset.set_changeable(["db-store-query"])
         ga = self.stackset.peek("galactus-account")
-        gaak = ga.api_key
+        gaun = ga.username
         gazwi = ga.azero_wallet_id
         gadwi = ga.pdot_wallet_id
         assert (not gazwi == "" or not gadwi == "")
         q = sql.update(galactus_account_table)
-        q = q.where(galactus_account_table.c.api_key == gaak)
+        q = q.where(galactus_account_table.c.username == gaun)
         if (not gazwi == "" and not gadwi == ""):
             q = q.values(azero_wallet_id=gazwi,
                          azero_wallet_confirmed=False,
